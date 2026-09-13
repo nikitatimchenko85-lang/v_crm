@@ -2325,6 +2325,8 @@ let forcePullSettings = false;      // кнопка «забрать настр�
 
 function mergeRemote(out){
   let added = 0;
+  // считаем до слияния: после него заявки уже загружены и признак всегда ложный
+  const wasEmpty = !(state.deals || []).length;
 
   // надгробия: что удалено на любом устройстве — удалено везде
   const tomb = new Map((state.deleted||[]).map(x=>[x.id, x.t]));
@@ -2383,7 +2385,7 @@ function mergeRemote(out){
   // с заявками, либо если их затребовали кнопкой
   const remoteStamp = +out.settingsStamp || 0;
   const localStamp = +state.settings.settingsStamp || 0;
-  const fresh = !(state.deals || []).length && out.settings;
+  const fresh = wasEmpty && out.settings;
   if(remoteStamp > localStamp || fresh || forcePullSettings){
     const rs = parseJson(out.settings, null);
     if(rs){
@@ -5433,7 +5435,7 @@ function bindToday(){
 
 /* ===== Версия и обновление ===== */
 
-const APP_VERSION = '2026.09.15';
+const APP_VERSION = '2026.09.16';
 
 function isHosted(){ return location.protocol === 'http:' || location.protocol === 'https:'; }
 
