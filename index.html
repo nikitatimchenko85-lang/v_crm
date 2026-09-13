@@ -195,6 +195,7 @@ body.with-today header .bar{max-width:none;margin-right:356px}
 /* скрытое обязано быть скрытым: класс с display перебивает атрибут hidden */
 .daymenu[hidden],.planner[hidden],.daypanel[hidden],.gate[hidden]{display:none!important}
 #setup .gatebox p{margin-bottom:14px}
+#setupMsg{white-space:pre-line;font-size:12.5px;line-height:1.45}
 
 .plansvg{width:100%;height:auto;touch-action:none;user-select:none}
 .plansvg .room{fill:#fff;stroke:#151C24;stroke-width:.05}
@@ -5432,7 +5433,7 @@ function bindToday(){
 
 /* ===== Версия и обновление ===== */
 
-const APP_VERSION = '2026.09.14';
+const APP_VERSION = '2026.09.15';
 
 function isHosted(){ return location.protocol === 'http:' || location.protocol === 'https:'; }
 
@@ -5524,9 +5525,16 @@ async function setupConnect(){
     const res = await fetch(url + '?action=full', {redirect:'follow'});
     const txt = await res.text();
     if(!txt.trim().startsWith('{')){
-      setupSay(/accounts\.google|Sign in|Войдите/i.test(txt)
-        ? 'Вместо данных пришла страница входа. В развёртывании скрипта поставьте «У кого есть доступ: Все».'
-        : 'Ответ не похож на данные таблицы. Проверьте, что развёрнута свежая версия скрипта.', true);
+      let why;
+      if(/accounts\.google|Sign in|Войдите/i.test(txt))
+        why = 'Вместо данных пришла страница входа. В развёртывании поставьте «У кого есть доступ: Все».';
+      else if(res.status === 404 || /Sorry, unable|не удалось открыть/i.test(txt))
+        why = 'Развёртывания по этой ссылке нет. Создайте новое: Развернуть → Новое развёртывание → Веб-приложение, и возьмите свежий адрес.';
+      else if(/TypeError|ReferenceError|Exception|Ошибка/i.test(txt))
+        why = 'Скрипт упал с ошибкой. В редакторе запустите функцию testHook, чтобы увидеть её текст.';
+      else
+        why = 'Ответ не похож на данные таблицы. Скорее всего развёрнута старая версия кода.';
+      setupSay(why + '\n\nКод ответа ' + res.status + '. Начало ответа: ' + txt.replace(/\s+/g, ' ').slice(0, 120), true);
       btn.disabled = false;
       return;
     }
