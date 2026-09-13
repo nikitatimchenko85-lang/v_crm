@@ -194,6 +194,7 @@ body.with-today header .bar{max-width:none;margin-right:356px}
 }
 /* скрытое обязано быть скрытым: класс с display перебивает атрибут hidden */
 .daymenu[hidden],.planner[hidden],.daypanel[hidden],.gate[hidden]{display:none!important}
+#setup .gatebox p{margin-bottom:14px}
 
 .plansvg{width:100%;height:auto;touch-action:none;user-select:none}
 .plansvg .room{fill:#fff;stroke:#151C24;stroke-width:.05}
@@ -722,6 +723,11 @@ body.locked{overflow:hidden}
     </div>
 
     <div class="card" data-stab="data">
+      <div class="eyebrow">Сохранность данных</div>
+      <div id="safetyBox"></div>
+    </div>
+
+    <div class="card" data-stab="data">
       <div class="eyebrow">Версия приложения</div>
       <p class="note" id="appVersion" style="margin:0 0 10px"></p>
       <button class="btn ghost sm" id="checkUpd">Проверить обновление</button>
@@ -738,6 +744,7 @@ body.locked{overflow:hidden}
       <div class="row" style="margin-top:10px">
         <button class="btn acc sm" id="pushBtn">Отправить сейчас</button>
         <button class="btn ghost sm" id="pullBtn">Загрузить из таблицы</button>
+        <button class="btn ghost sm" id="pullSettings">Забрать настройки принудительно</button>
         <button class="btn ghost sm" id="csvBtn">Скачать CSV</button>
         <button class="btn ghost sm" id="testConn">Проверить связь</button>
       </div>
@@ -775,6 +782,19 @@ body.locked{overflow:hidden}
   </div>
   <div class="dbody" id="drawerBody"></div>
 </aside>
+
+<div class="gate" id="setup" hidden style="z-index:95">
+  <div class="gatebox">
+    <h2>Подключите таблицу</h2>
+    <p>Заявки, настройки и сотрудники хранятся в вашей Google&nbsp;Таблице. Вставьте ссылку на веб-приложение Apps&nbsp;Script — она понадобится один раз на этом устройстве.</p>
+    <label class="f"><span>Ссылка вида …/exec</span>
+      <input type="text" id="setupUrl" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off"></label>
+    <p class="note" id="setupMsg" style="margin:10px 0 0"></p>
+    <button class="btn acc" id="setupGo" style="width:100%;margin-top:12px">Подключить</button>
+    <button class="btn ghost sm" id="setupSkip" style="width:100%;margin-top:8px">Позже, только на этом устройстве</button>
+    <div class="dev">Ссылку можно скопировать из приложения на другом устройстве: Настройки → Данные</div>
+  </div>
+</div>
 
 <div class="gate" id="gate" hidden>
   <div class="gatebox">
@@ -2009,6 +2029,168 @@ function bindDocSettings(){
 }
 
 
+/* ===== Сохранность данных: снимки, вкладки, место в хранилище ===== */
+
+const SNAP_KEY = 'banquet-crm-v1:snap';
+const GEN_KEY  = 'banquet-crm-v1:gen';
+let myGen = '';
+
+/* ---------- запись с учётом переполнения ---------- */
+function writeState(){
+  const data = JSON.stringify(state);
+  try{
+    localStorage.setItem(KEY, data);
+    stampGen();
+    return true;
+  }catch(e){
+    return rescueWrite(data.length);
+  }
+}
+
+/* хранилище кончилось — срезаем самое объёмное и пробуем снова */
+function rescueWrite(size){
+  const steps = [
+    ()=>{ const n = (state.log||[]).length; state.log = (state.log||[]).slice(-300); return n - state.log.length + ' записей журнала'; },
+    ()=>{ const n = (state.sessions||[]).length; state.sessions = (state.sessions||[]).slice(-60); return n - state.sessions.length + ' смен'; },
+    ()=>{ try{ localStorage.removeItem(SNAP_KEY); }catch(e){} return 'снимки'; },
+    ()=>{ let n = 0; (state.settings.venues||[]).forEach(v=>{ if(v.plan && v.plan.img){ delete v.plan.img; n++; } }); return n + ' подложек залов'; }
+  ];
+  for(const step of steps){
+    const what = step();
+    try{
+      localStorage.setItem(KEY, JSON.stringify(state));
+      stampGen();
+      toast('Хранилище было переполнено, освободил: ' + what);
+      logPush({a:'нехватка места в браузере', to:'освобождено: ' + what});
+      return true;
+    }catch(e){}
+  }
+  // не помогло — предупреждаем громко, данные пока живы в памяти
+  storageAlarm(Math.round(size/1024));
+  return false;
+}
+
+function storageAlarm(kb){
+  const bar = document.getElementById('updBar');
+  if(bar){
+    document.getElementById('updText').textContent =
+      'Не удалось сохранить данные в браузере (' + kb + ' КБ). Выгрузите копию, пока вкладка открыта.';
+    document.getElementById('updGo').textContent = 'Скачать копию';
+    document.getElementById('updGo').onclick = ()=>backupNow();
+    bar.hidden = false;
+  }
+  toast('Браузер отказал в сохранении — скачайте резервную копию');
+}
+
+function backupNow(){
+  dl(new Blob([JSON.stringify(state, null, 2)], {type:'application/json'}),
+     'crm-backup-' + today() + '.json');
+}
+
+/* ---------- несколько вкладок одновременно ---------- */
+function stampGen(){
+  myGen = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  try{ localStorage.setItem(GEN_KEY, myGen); }catch(e){}
+}
+
+function watchTabs(){
+  window.addEventListener('storage', e=>{
+    if(e.key !== KEY && e.key !== GEN_KEY) return;
+    const gen = localStorage.getItem(GEN_KEY);
+    if(!gen || gen === myGen) return;          // это наша же запись
+    myGen = gen;
+    state = load();                            // забираем свежее, чтобы не затереть чужое
+    auditPrev = auditSnapshot();
+    render();
+    if(ui.openId) drawDrawer();
+    toast('Данные обновлены в другой вкладке');
+  });
+}
+
+/* ---------- ежедневные снимки ---------- */
+function snapshots(){
+  try{ return JSON.parse(localStorage.getItem(SNAP_KEY)) || []; }catch(e){ return []; }
+}
+function makeSnapshot(){
+  if(!(state.deals || []).length) return;
+  const list = snapshots(), d = today();
+  if(list.length && list[list.length - 1].date === d) return;   // один снимок в день
+  list.push({date:d, at:new Date().toLocaleString('ru-RU'), deals:state.deals.length,
+             data:JSON.stringify({deals:state.deals, tasks:state.tasks, rentals:state.rentals,
+                                  ops:state.ops, settings:state.settings})});
+  while(list.length > 7) list.shift();
+  try{ localStorage.setItem(SNAP_KEY, JSON.stringify(list)); }
+  catch(e){
+    while(list.length > 2){ list.shift(); try{ localStorage.setItem(SNAP_KEY, JSON.stringify(list)); break; }catch(e2){} }
+  }
+}
+function restoreSnapshot(date){
+  const s = snapshots().find(x=>x.date === date);
+  if(!s) return;
+  if(!confirm('Вернуть данные на ' + fmtDate(date) + '?\n\nТекущее состояние сначала уйдёт в файл резервной копии.')) return;
+  try{ backupNow(); }catch(e){}          // не смогли скачать копию — восстановление всё равно важнее
+  try{
+    const j = JSON.parse(s.data);
+    state.deals = j.deals || [];
+    state.tasks = j.tasks || [];
+    state.rentals = j.rentals || [];
+    state.ops = j.ops || [];
+    if(j.settings) state.settings = Object.assign(defaults(), j.settings,
+      {scriptUrl:state.settings.scriptUrl, hookToken:state.settings.hookToken});
+    logPush({a:'ВОССТАНОВЛЕНИЕ из снимка', to:fmtDate(date)});
+    save();
+    render();
+    toast('Данные восстановлены на ' + fmtDate(date));
+  }catch(e){ toast('Снимок повреждён'); }
+}
+
+/* ---------- спорные правки ---------- */
+function keepConflict(kind, local, remote){
+  state.conflicts = state.conflicts || [];
+  state.conflicts.push({t:Date.now(), kind,
+    name:(local.client || local.title || local.renterName || local.party || ''),
+    mine:JSON.stringify(local), theirs:JSON.stringify(remote)});
+  while(state.conflicts.length > 50) state.conflicts.shift();
+}
+
+/* ---------- блок в настройках ---------- */
+function renderSafety(){
+  const host = document.getElementById('safetyBox');
+  if(!host) return;
+  const snaps = snapshots().slice().reverse();
+  const size = Math.round((localStorage.getItem(KEY) || '').length / 1024);
+  const conf = (state.conflicts || []).length;
+
+  host.innerHTML = `
+    <p class="note" style="margin:0 0 10px">Данные в браузере занимают <b>${size} КБ</b>.
+      ${size > 3500 ? '<b style="color:var(--warn)">Близко к пределу — выгрузите подложки залов или очистите журнал.</b>' : 'Запас есть.'}</p>
+    ${conf ? `<div class="warnbox">Спорных правок: ${conf}. Это версии записей, которые перезаписало другое устройство — они сохранены.
+      <button class="btn ghost sm" id="dlConflicts" style="margin-top:8px">Скачать их</button></div>` : ''}
+    <div class="section-h"><span class="eyebrow">Снимки по дням</span><i class="line"></i></div>
+    ${snaps.length ? snaps.map(s=>`<div class="row" style="justify-content:space-between;padding:6px 0">
+        <span><b>${fmtDate(s.date)}</b> <span class="sub">· ${s.deals} заявок · ${esc(s.at)}</span></span>
+        <button class="btn ghost sm" data-snap="${s.date}">Вернуть</button>
+      </div>`).join('')
+      : '<p class="note" style="margin:0">Снимок создаётся автоматически раз в день при первом изменении.</p>'}`;
+
+  host.onclick = e=>{
+    const b = e.target.closest('[data-snap]');
+    if(b){ restoreSnapshot(b.dataset.snap); return; }
+    if(e.target.id === 'dlConflicts'){
+      dl(new Blob([JSON.stringify(state.conflicts, null, 2)], {type:'application/json'}),
+         'crm-conflicts-' + today() + '.json');
+    }
+  };
+}
+
+function bindSafety(){
+  watchTabs();
+  stampGen();
+  makeSnapshot();
+  setInterval(makeSnapshot, 30 * 60 * 1000);
+}
+
+
 /* ===== Автосохранение: очередь в Таблицу + копия в файл + индикатор ===== */
 
 const SYNC_DELAY = 12000;                                  // пауза после последней правки
@@ -2016,7 +2198,7 @@ const SYNC_RETRY = [30000, 60000, 180000, 600000];         // нарастающ
 
 let sync = {timer:null, fileTimer:null, tries:0, busy:false, status:'idle', note:'', handle:null};
 
-function rawSave(){ localStorage.setItem(KEY, JSON.stringify(state)); }
+function rawSave(){ writeState(); }
 function isDirty(){ return (state.settings.dataStamp||0) > (state.settings.syncStamp||0); }
 
 /* ---------- планировщик ---------- */
@@ -2038,7 +2220,18 @@ async function runSync(force){
 
   sync.busy = true; setSync('busy');
   // сначала забираем чужие правки, иначе выгрузка затрёт их
-  sync.busy = false; await syncPull(); sync.busy = true;
+  sync.busy = false;
+  const pulled = await syncPull();
+  sync.busy = true;
+  if(!pulled){
+    // без свежих данных выгружать опасно: можно затереть чужую работу
+    sync.busy = false;
+    sync.note = 'нет связи с таблицей, выгрузка отложена';
+    setSync('err');
+    clearTimeout(sync.timer);
+    sync.timer = setTimeout(()=>runSync(force), SYNC_RETRY[Math.min(sync.tries++, SYNC_RETRY.length - 1)]);
+    return;
+  }
   const stamp = state.settings.dataStamp || Date.now();
   sync.lastNotices = pendingNotices();
   try{
@@ -2069,6 +2262,16 @@ async function runSync(force){
     });
     const out = await res.json();
 
+    if(out.status === 'shrink'){                           // данных стало резко меньше
+      sync.busy = false;
+      if(confirm(out.message + '\n\nТак бывает, если на этом устройстве данные пропали.\n' +
+                 'Отмена — сначала загрузить данные из таблицы.\n\nВсё равно перезаписать таблицу?')){
+        return runSync(true);
+      }
+      state.settings.autoSync = false; rawSave(); setSync('off');
+      toast('Выгрузка остановлена, таблица не тронута');
+      return {ok:false, msg:'остановлено'};
+    }
     if(out.status === 'stale'){                            // в таблице данные свежее
       sync.busy = false;
       if(confirm(out.message + '\n\nПерезаписать таблицу тем, что на этом устройстве?')) return runSync(true);
@@ -2094,7 +2297,7 @@ async function runSync(force){
 function syncableSettings(){
   const s = Object.assign({}, state.settings);
   ['lastSync','syncStamp','dataStamp','backupStamp','lastBackup','backupName',
-   'lastFileBackup','editingTpl'].forEach(k=>delete s[k]);
+   'lastFileBackup','editingTpl','scriptUrl','hookToken','autoSync'].forEach(k=>delete s[k]);
   return s;
 }
 
@@ -2117,6 +2320,8 @@ async function syncPull(manual){
   }
 }
 
+let forcePullSettings = false;      // кнопка «забрать настройки принудительно»
+
 function mergeRemote(out){
   let added = 0;
 
@@ -2132,7 +2337,11 @@ function mergeRemote(out){
     if(dead.has(r.id)) return;
     const remote = unflatten(r), local = map.get(remote.id);
     if(!local){ map.set(remote.id, remote); added++; return; }
-    if(String(remote.updated||'') > String(local.updated||'')) map.set(remote.id, remote);
+    if(String(remote.updated||'') > String(local.updated||'')){
+      // наша версия проигрывает по времени — сохраняем её, чтобы правка не исчезла бесследно
+      if(local.updated && JSON.stringify(local) !== JSON.stringify(remote)) keepConflict('заявка', local, remote);
+      map.set(remote.id, remote);
+    }
   });
   state.deals = [...map.values()];
 
@@ -2169,15 +2378,23 @@ function mergeRemote(out){
   const gotLeads = importLeads(out.leads);
   if(gotLeads) toast('Новых заявок: ' + gotLeads);
 
-  // настройки целиком, если в таблице они свежее
+  // настройки целиком: если в таблице они свежее, если устройство ещё не работало
+  // с заявками, либо если их затребовали кнопкой
   const remoteStamp = +out.settingsStamp || 0;
-  if(remoteStamp > (state.settings.settingsStamp || 0)){
+  const localStamp = +state.settings.settingsStamp || 0;
+  const fresh = !(state.deals || []).length && out.settings;
+  if(remoteStamp > localStamp || fresh || forcePullSettings){
     const rs = parseJson(out.settings, null);
     if(rs){
+      // ссылка на скрипт, токен и режим выгрузки — свои у каждого устройства
       const keep = {};
       ['lastSync','syncStamp','dataStamp','backupStamp','lastBackup','backupName',
-       'lastFileBackup','editingTpl'].forEach(k=>{ if(state.settings[k] !== undefined) keep[k] = state.settings[k]; });
-      state.settings = Object.assign(defaults(), rs, keep, {settingsStamp:remoteStamp});
+       'lastFileBackup','editingTpl','scriptUrl','hookToken','autoSync'].forEach(k=>{
+        if(state.settings[k] !== undefined) keep[k] = state.settings[k];
+      });
+      state.settings = Object.assign(defaults(), rs, keep,
+        {settingsStamp: remoteStamp || Date.now()});
+      forcePullSettings = false;
     }
   }
 
@@ -2331,7 +2548,7 @@ async function keepStorage(){
 function flushOnLeave(){
   if(!isDirty() || !state.settings.scriptUrl || state.settings.autoSync === false) return;
   try{
-    const body = new Blob([JSON.stringify({action:'sync', stamp:state.settings.dataStamp, force:true,
+    const body = new Blob([JSON.stringify({action:'sync', stamp:state.settings.dataStamp, force:false,
       venues:state.settings.venues, deals:state.deals.map(flatten)})], {type:'text/plain;charset=utf-8'});
     navigator.sendBeacon(state.settings.scriptUrl, body);
   }catch(e){}
@@ -2646,7 +2863,7 @@ function applyRole(){
   ['venueEditor','staffEditor','tplList','tplName','tplBody','tplAdd','tplDel','tplReset',
    'scriptUrl','autoSync','syncParty','wipeOld','oneADay','company','city','companyPhone',
    'currency','pullBtn','pickBackup','staffAdd','requirePin','idleMin',
-   'checklistEditor','checklistAdd','priceEditor','catalogEditor','catalogAdd','accEditor','accAdd','expCatEditor','expCatAdd','hookToken','tgTest','cnRule','cnPercent','signer','signerBasis','tplReload'].forEach(id=>{
+   'checklistEditor','checklistAdd','priceEditor','catalogEditor','catalogAdd','accEditor','accAdd','expCatEditor','expCatAdd','hookToken','tgTest','cnRule','cnPercent','signer','signerBasis','tplReload','pullSettings'].forEach(id=>{
     const el = document.getElementById(id); if(!el) return;
     if(el.querySelectorAll) el.querySelectorAll('input,select,button').forEach(x=>x.disabled = !own);
     if(el.tagName !== 'DIV') el.disabled = !own;
@@ -5215,7 +5432,7 @@ function bindToday(){
 
 /* ===== Версия и обновление ===== */
 
-const APP_VERSION = '2026.09.04';
+const APP_VERSION = '2026.09.14';
 
 function isHosted(){ return location.protocol === 'http:' || location.protocol === 'https:'; }
 
@@ -5267,6 +5484,87 @@ function bindUpdate(){
   document.addEventListener('visibilitychange', ()=>{
     if(document.visibilityState === 'visible') checkUpdate(false);
   });
+}
+
+
+/* ===== Первый запуск: подключение таблицы ===== */
+
+function needSetup(){
+  return !state.settings.scriptUrl && !(state.deals || []).length;
+}
+
+function showSetup(){
+  const el = document.getElementById('setup');
+  el.hidden = false;
+  document.body.classList.add('locked');
+  document.getElementById('setupUrl').focus();
+}
+function hideSetup(){
+  document.getElementById('setup').hidden = true;
+  document.body.classList.remove('locked');
+}
+
+function setupSay(text, bad){
+  const el = document.getElementById('setupMsg');
+  el.textContent = text || '';
+  el.style.color = bad ? 'var(--warn)' : 'var(--ink2)';
+}
+
+async function setupConnect(){
+  const url = document.getElementById('setupUrl').value.trim();
+  if(!url){ setupSay('Вставьте ссылку', true); return; }
+  if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/.test(url)){
+    setupSay('Ссылка должна начинаться с https://script.google.com/macros/s/ и заканчиваться на /exec', true);
+    return;
+  }
+  const btn = document.getElementById('setupGo');
+  btn.disabled = true;
+  setupSay('Проверяю связь…');
+  try{
+    const res = await fetch(url + '?action=full', {redirect:'follow'});
+    const txt = await res.text();
+    if(!txt.trim().startsWith('{')){
+      setupSay(/accounts\.google|Sign in|Войдите/i.test(txt)
+        ? 'Вместо данных пришла страница входа. В развёртывании скрипта поставьте «У кого есть доступ: Все».'
+        : 'Ответ не похож на данные таблицы. Проверьте, что развёрнута свежая версия скрипта.', true);
+      btn.disabled = false;
+      return;
+    }
+    const out = JSON.parse(txt);
+    if(out.status !== 'ok'){ setupSay('Скрипт ответил: ' + (out.message || 'ошибка'), true); btn.disabled = false; return; }
+
+    state.settings.scriptUrl = url;
+    if(state.settings.autoSync === undefined) state.settings.autoSync = true;
+    rawSave();
+    forcePullSettings = true;
+    mergeRemote(out);
+    forcePullSettings = false;
+    rawSave();
+
+    const n = (state.deals || []).length;
+    setupSay('Готово. Загружено заявок: ' + n);
+    setTimeout(()=>{
+      hideSetup();
+      render();
+      if(!me()) showGate('Кто работает?');
+    }, 700);
+  }catch(e){
+    setupSay('Не получилось: ' + (e.message || e) + '. Проверьте интернет и ссылку.', true);
+    btn.disabled = false;
+  }
+}
+
+function setupSkip(){
+  if(!confirm('Работать без таблицы? Данные останутся только на этом устройстве и не будут видны на других. Подключить можно позже в настройках.')) return;
+  hideSetup();
+  render();
+  if(!me()) showGate();
+}
+
+function bindSetup(){
+  document.getElementById('setupGo').onclick = setupConnect;
+  document.getElementById('setupSkip').onclick = setupSkip;
+  document.getElementById('setupUrl').addEventListener('keydown', e=>{ if(e.key === 'Enter') setupConnect(); });
 }
 
 
@@ -5363,7 +5661,8 @@ function load(){
   try{
     const raw = JSON.parse(localStorage.getItem(KEY));
     if(raw && raw.deals){
-      const st = {deals:raw.deals, tasks:raw.tasks||[], rentals:raw.rentals||[], ops:raw.ops||[], log:raw.log||[], sessions:raw.sessions||[], settings:Object.assign(defaults(), raw.settings||{})};
+      const st = {deals:raw.deals, tasks:raw.tasks||[], rentals:raw.rentals||[], ops:raw.ops||[],
+        conflicts:raw.conflicts||[], log:raw.log||[], sessions:raw.sessions||[], settings:Object.assign(defaults(), raw.settings||{})};
       if(!st.settings.scriptUrl) st.settings.scriptUrl = BUILTIN_SCRIPT_URL;
       if(!st.settings.templates || !st.settings.templates.length) st.settings.templates = defaults().templates;
       fixVenueHours(st.settings.venues);
@@ -5378,12 +5677,13 @@ function load(){
       return st;
     }
   }catch(e){}
-  return {deals:[], tasks:[], rentals:[], ops:[], log:[], sessions:[], settings:defaults()};
+  return {deals:[], tasks:[], rentals:[], ops:[], conflicts:[], log:[], sessions:[], settings:defaults()};
 }
 function save(){
+  makeSnapshot();          // снимок за день — до того, как данные изменятся
   auditDiff();
   state.settings.dataStamp = Date.now();
-  localStorage.setItem(KEY, JSON.stringify(state));
+  writeState();            // запись с защитой от переполнения хранилища
   scheduleSync();
 }
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
@@ -5831,6 +6131,7 @@ function renderSettings(){
   renderCancelSettings();
   renderPlanSettings();
   renderFinanceSettings();
+  renderSafety();
   renderIntegrations();
   applyStab();
   applyRole();
@@ -6156,9 +6457,11 @@ function downloadCSV(){
   dl(new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8'}), 'zayavki-'+today()+'.csv');
 }
 function dl(blob, name){
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = name; a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+  try{
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+  }catch(e){ toast('Браузер не дал скачать файл'); }
 }
 
 /* ===================== СОБЫТИЯ ===================== */
@@ -6217,6 +6520,14 @@ document.getElementById('scriptUrl').addEventListener('change', e=>{
 });
 document.getElementById('pushBtn').onclick = pushSheets;
 document.getElementById('pullBtn').onclick = ()=>syncPull(true);
+document.getElementById('pullSettings').onclick = async ()=>{
+  if(!confirm('Заменить настройки этого устройства теми, что лежат в таблице? Сотрудники, площадки, прайс и шаблоны будут взяты оттуда.')) return;
+  forcePullSettings = true;                  // снимаем защиту по времени
+  await syncPull(true);
+  forcePullSettings = false;
+  render();
+  toast('Настройки взяты из таблицы');
+};
 document.getElementById('csvBtn').onclick = downloadCSV;
 document.getElementById('backupBtn').onclick = ()=>dl(new Blob([JSON.stringify(state,null,2)],{type:'application/json'}), 'crm-backup-'+today()+'.json');
 document.getElementById('restoreBtn').onclick = ()=>document.getElementById('restoreFile').click();
@@ -6273,7 +6584,11 @@ document.getElementById('logQ').addEventListener('input', e=>{ logFilter.q = e.t
 auditPrev = auditSnapshot();
 closeStaleShifts();
 startSessionWatch();
-if(!me()) showGate(); else renderMe();
+bindSetup();
+bindSafety();
+if(needSetup()) showSetup();
+else if(!me()) showGate();
+else renderMe();
 initBackup();
 render();
 
