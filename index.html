@@ -2562,19 +2562,21 @@ async function testConnection(){
   const url = state.settings.scriptUrl;
   const show = t => { el.style.display = 'block'; el.textContent = t; };
   if(!url){ show('Ссылка не заполнена.'); return; }
-  show('Проверяю…');
+  const tail = '…' + url.slice(-28);
+  show('Проверяю ' + tail);
   try{
-    const res = await fetch(url + '?action=list', {redirect:'follow'});
+    const res = await fetch(url + '?action=full', {redirect:'follow'});
     const txt = await res.text();
     if(txt.trim().startsWith('{')){
       const out = JSON.parse(txt);
       show(out.status === 'ok'
-        ? 'Связь есть. Записей в таблице: ' + (out.deals ? out.deals.length : 0) + '.'
-        : 'Скрипт ответил ошибкой: ' + (out.message || 'без описания'));
+        ? 'Связь есть. Заявок в таблице: ' + (out.deals ? out.deals.length : 0) + ' · ' + tail
+        : 'Скрипт ответил ошибкой: ' + (out.message || 'без описания') + ' · ' + tail);
     } else if(/accounts\.google|Sign in|Войдите/i.test(txt)){
       show('Вместо ответа пришла страница входа. В параметрах развёртывания поставьте «У кого есть доступ: Все».');
     } else if(res.status === 404){
-      show('404 — развёртывания по этому адресу нет. Создайте новое и скопируйте свежий URL.');
+      show('404 — по этому адресу развёртывания нет: ' + tail +
+           '. Возьмите ссылку активного развёртывания: Развернуть → Управление развёртываниями → URL веб-приложения.');
     } else {
       show('Неожиданный ответ, код ' + res.status + '. Начало: ' + txt.slice(0,80));
     }
@@ -5435,7 +5437,7 @@ function bindToday(){
 
 /* ===== Версия и обновление ===== */
 
-const APP_VERSION = '2026.09.16';
+const APP_VERSION = '2026.09.17';
 
 function isHosted(){ return location.protocol === 'http:' || location.protocol === 'https:'; }
 
