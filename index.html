@@ -428,6 +428,93 @@ body.locked{overflow:hidden}
   main{padding-bottom:110px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* ================= ТЕЛЕФОН ================= */
+@media (max-width:760px){
+  :root{--tap:44px}
+
+  /* шапка: компактная строка без переносов */
+  header .bar{padding:8px 12px;gap:8px;flex-wrap:nowrap;align-items:center}
+  .brand{font-size:14px;letter-spacing:-.01em;white-space:nowrap}
+  #todayBtn{padding:6px 10px;font-size:12.5px}
+  #meBox{padding:6px 10px;font-size:12.5px;max-width:110px;overflow:hidden}
+  #meBox span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sync{font-size:10.5px;max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* вкладки уезжают вниз, как в обычном приложении */
+  nav{position:fixed;left:0;right:0;bottom:0;z-index:46;margin:0;background:var(--card);
+      border-top:1px solid var(--line);display:flex;gap:0;overflow-x:auto;scrollbar-width:none;
+      padding:6px 6px calc(6px + env(safe-area-inset-bottom));box-shadow:0 -4px 18px rgba(21,28,36,.07)}
+  nav::-webkit-scrollbar{display:none}
+  nav button{flex:0 0 auto;border-radius:10px;padding:9px 13px;font-size:13.5px;min-height:var(--tap)}
+  nav button[aria-current="true"]{background:var(--ink);color:#fff}
+
+  main{padding:14px 12px calc(96px + env(safe-area-inset-bottom));min-width:0}
+
+  /* поля: 16px, иначе iOS зумит страницу при фокусе */
+  input,select,textarea{font-size:16px!important;min-height:var(--tap)}
+  textarea{min-height:90px}
+  label.f>span{font-size:12.5px}
+  .grid2,.grid3{grid-template-columns:1fr;gap:8px}
+
+  /* кнопки крупнее и не наезжают друг на друга */
+  .btn{min-height:var(--tap);padding:11px 15px;font-size:14.5px}
+  .btn.sm{min-height:38px;padding:9px 13px}
+  .row{gap:8px}
+  .row .btn{flex:1 1 auto}
+
+  /* ленты фильтров прокручиваются, а не переносятся */
+  .chipbar,.stabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px;-webkit-overflow-scrolling:touch}
+  .chipbar::-webkit-scrollbar,.stabs::-webkit-scrollbar{display:none}
+  .chipbar button,.stabs button{flex:0 0 auto;min-height:36px}
+  .toolbar{gap:8px}
+  .toolbar .search{width:100%;flex:1 0 100%}
+
+  /* таблицы не ломают вёрстку: прокрутка внутри карточки */
+  .card{padding:12px}
+  .card table,#view-money table,#catalogEditor table,#priceEditor table{min-width:520px}
+  .card,#dueTable,#inTable,#byVenue,#pnlPane,#eventsPane,#opsPane,#catalogEditor,#priceEditor{
+    overflow-x:auto;-webkit-overflow-scrolling:touch}
+  th,td{white-space:nowrap}
+  td .sub{white-space:normal}
+
+  /* карточки списков */
+  .deal{padding:11px 12px}
+  .deal .name{font-size:15px}
+  .stat .v{font-size:22px}
+
+  /* кнопки добавления над нижней панелью */
+  .fabs{right:12px;bottom:calc(72px + env(safe-area-inset-bottom));gap:8px}
+  .fab{padding:12px 16px;font-size:14px;min-height:var(--tap)}
+  .fab.ghost{background:rgba(255,255,255,.96)}
+
+  /* ящик заявки и наряда на весь экран */
+  .drawer{width:100%}
+  .dhead{padding:12px 14px calc(12px);position:sticky;top:0;z-index:2}
+  .dbody{padding:14px 14px calc(40px + env(safe-area-inset-bottom))}
+
+  /* планировщик схемы */
+  .phead{padding:10px 12px;gap:8px}
+  .phead h2{font-size:15px;min-width:100%}
+  .ptools{padding:0 12px 10px}
+  .pbody{padding:12px 12px calc(30px + env(safe-area-inset-bottom))}
+
+  /* всплывающие панели */
+  .daymenu{left:10px!important;right:10px;top:auto!important;
+           bottom:calc(76px + env(safe-area-inset-bottom));width:auto;max-height:56vh}
+  .updbar{bottom:calc(80px + env(safe-area-inset-bottom));left:10px;right:10px;transform:none}
+  #toast{bottom:calc(78px + env(safe-area-inset-bottom));max-width:calc(100vw - 24px);text-align:center}
+  .gatebox{padding:18px}
+  .daypanel{height:76vh;padding-bottom:env(safe-area-inset-bottom)}
+  body.with-today main{padding-bottom:calc(78vh + env(safe-area-inset-bottom))}
+}
+
+/* очень узкие экраны */
+@media (max-width:380px){
+  .brand{font-size:13px}
+  .sync{display:none}
+  nav button{padding:9px 11px;font-size:13px}
+}
+
 </style>
 </head>
 <body>
@@ -2385,7 +2472,12 @@ function mergeRemote(out){
   // с заявками, либо если их затребовали кнопкой
   const remoteStamp = +out.settingsStamp || 0;
   const localStamp = +state.settings.settingsStamp || 0;
-  const fresh = wasEmpty && out.settings;
+  // «заводские» настройки: один сотрудник по умолчанию и нетронутые шаблоны
+  const st = state.settings;
+  const factory = (st.staff || []).length <= 1 &&
+                  !(st.templates || []).some(t => t.edited) &&
+                  !st.company;
+  const fresh = (wasEmpty || factory) && out.settings;
   if(remoteStamp > localStamp || fresh || forcePullSettings){
     const rs = parseJson(out.settings, null);
     if(rs){
@@ -2569,9 +2661,23 @@ async function testConnection(){
     const txt = await res.text();
     if(txt.trim().startsWith('{')){
       const out = JSON.parse(txt);
-      show(out.status === 'ok'
-        ? 'Связь есть. Заявок в таблице: ' + (out.deals ? out.deals.length : 0) + ' · ' + tail
-        : 'Скрипт ответил ошибкой: ' + (out.message || 'без описания') + ' · ' + tail);
+      if(out.status !== 'ok'){
+        show('Скрипт ответил ошибкой: ' + (out.message || 'без описания') + ' · ' + tail);
+      } else {
+        let rs = null;
+        try{ rs = JSON.parse(out.settings || 'null'); }catch(e){}
+        const parts = ['Связь есть. Заявок: ' + (out.deals ? out.deals.length : 0)];
+        if(rs){
+          parts.push('сотрудников: ' + ((rs.staff || []).length));
+          parts.push('шаблонов: ' + ((rs.templates || []).length));
+          parts.push('площадок: ' + ((rs.venues || []).length));
+          parts.push('отметка настроек: ' + (out.settingsStamp
+            ? new Date(+out.settingsStamp).toLocaleString('ru-RU') : 'нет'));
+        } else {
+          parts.push('НАСТРОЕК В ТАБЛИЦЕ НЕТ — выгрузите их с того устройства, где они заполнены');
+        }
+        show(parts.join(' · '));
+      }
     } else if(/accounts\.google|Sign in|Войдите/i.test(txt)){
       show('Вместо ответа пришла страница входа. В параметрах развёртывания поставьте «У кого есть доступ: Все».');
     } else if(res.status === 404){
@@ -5437,7 +5543,7 @@ function bindToday(){
 
 /* ===== Версия и обновление ===== */
 
-const APP_VERSION = '2026.09.17';
+const APP_VERSION = '2026.09.18';
 
 function isHosted(){ return location.protocol === 'http:' || location.protocol === 'https:'; }
 
