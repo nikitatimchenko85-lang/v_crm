@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Свободные даты — Villatic</title>
+<meta name="description" content="Занятость залов Классика, Амбар и Пикник на площадке Villatic в Красноярске">
+<meta name="theme-color" content="#F2F3EE">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F2F3EE; --card:#FFFFFF; --ink:#1E2B2B; --soft:#5F6B66; --faint:#9AA39E; --line:#D9DDD5;
+    --classic:#3D6E92; --barn:#B07A2B; --picnic:#5E7F4B;
+    --font:'Golos Text', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.45}
+  .wrap{max-width:760px;margin:0 auto;padding:28px 18px calc(40px + env(safe-area-inset-bottom))}
+
+  header{margin-bottom:26px}
+  .brand{font-weight:700;font-size:15px;letter-spacing:.02em;color:var(--soft)}
+  h1{font-size:clamp(30px,7vw,44px);line-height:1.05;letter-spacing:-.02em;margin:10px 0 10px;font-weight:700}
+  .lead{margin:0;color:var(--soft);max-width:34em}
+
+  /* месяц */
+  .month{display:flex;align-items:center;gap:10px;margin:0 0 14px}
+  .month h2{flex:1;margin:0;font-size:22px;font-weight:600;letter-spacing:-.01em}
+  .nav{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--card);
+       color:var(--ink);font:inherit;font-size:20px;cursor:pointer;display:grid;place-items:center}
+  .nav:disabled{opacity:.35;cursor:default}
+
+  .dow{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:6px}
+  .dow span{font-size:13px;color:var(--faint);text-align:center}
+  .dow span:nth-child(n+5){color:var(--soft)}
+
+  .grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+  .day{position:relative;aspect-ratio:1/1.12;border:1px solid var(--line);border-radius:12px;background:var(--card);
+       padding:7px 7px 8px;display:flex;flex-direction:column;justify-content:space-between;
+       font:inherit;color:inherit;text-align:left;cursor:pointer;min-width:0}
+  .day:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+  .day .n{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+  .day.off{background:transparent;border-style:dashed;cursor:default}
+  .day.off .n,.day.past .n{color:var(--faint);font-weight:400}
+  .day.past{background:transparent;cursor:default}
+  .day.today .n{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px}
+  .day.sel{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+  .empty{visibility:hidden}
+
+  /* три двери: по полосе на зал */
+  .doors{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;height:42%}
+  .door{border-radius:4px 4px 2px 2px;border:1.5px solid currentColor;opacity:.28}
+  .door.c{color:var(--classic)} .door.a{color:var(--barn)} .door.p{color:var(--picnic)}
+  .door.busy{background:currentColor;opacity:1}
+  .door.maybe{opacity:1;background:repeating-linear-gradient(135deg,currentColor 0 2px,transparent 2px 5px)}
+  .day.off .doors,.day.past .doors{display:none}
+
+  /* подробности дня */
+  .detail{margin-top:18px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}
+  .detail h3{margin:0 0 12px;font-size:19px;font-weight:600;text-transform:none}
+  .halls{list-style:none;margin:0;padding:0}
+  .halls li{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+  .halls li:first-child{border-top:0}
+  .swatch{width:14px;height:22px;border-radius:4px 4px 2px 2px;border:1.5px solid currentColor;flex:none}
+  .halls .name{flex:1;font-weight:500}
+  .halls .state{color:var(--soft)}
+  .halls li.busy .state{color:var(--ink);font-weight:600}
+  .call{display:inline-flex;align-items:center;justify-content:center;margin-top:14px;min-height:48px;padding:0 20px;
+        border-radius:12px;background:var(--ink);color:#fff;text-decoration:none;font-weight:600}
+  .call:focus-visible{outline:3px solid var(--classic);outline-offset:2px}
+
+  /* легенда */
+  .legend{display:flex;flex-wrap:wrap;gap:10px 22px;margin:18px 0 0;padding:0;list-style:none;color:var(--soft);font-size:14px}
+  .legend li{display:flex;align-items:center;gap:8px}
+  .legend .door{width:12px;height:18px;display:inline-block;color:var(--ink)}
+  .legend.halls-key{margin-top:8px}
+  .legend.halls-key .door.c{color:var(--classic)} .legend.halls-key .door.a{color:var(--barn)} .legend.halls-key .door.p{color:var(--picnic)}
+
+  .note{margin:22px 0 0;color:var(--soft);font-size:14px}
+  .msg{padding:18px;border-radius:14px;background:var(--card);border:1px solid var(--line);margin-top:10px}
+
+  @media (max-width:420px){
+    .wrap{padding:22px 12px calc(32px + env(safe-area-inset-bottom))}
+    .grid,.dow{gap:4px}
+    .day{border-radius:9px;padding:5px 5px 6px}
+    .day .n{font-size:13px}
+    .doors{gap:2px}
+  }
+  @media (prefers-reduced-motion:no-preference){
+    .detail{animation:rise .18s ease-out}
+    @keyframes rise{from{transform:translateY(4px);opacity:0}to{transform:none;opacity:1}}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">Villatic</div>
+    <h1>Свободные даты</h1>
+    <p class="lead">Классика, Амбар и Пикник на Базайской, 365/26. Нажмите на дату, чтобы увидеть, какие залы свободны.</p>
+  </header>
+
+  <main>
+    <div class="month">
+      <button class="nav" id="prev" aria-label="Предыдущий месяц">‹</button>
+      <h2 id="title" aria-live="polite"></h2>
+      <button class="nav" id="next" aria-label="Следующий месяц">›</button>
+    </div>
+    <div class="dow" aria-hidden="true"><span>пн</span><span>вт</span><span>ср</span><span>чт</span><span>пт</span><span>сб</span><span>вс</span></div>
+    <div class="grid" id="grid" role="grid"></div>
+    <section class="detail" id="detail" hidden aria-live="polite"></section>
+
+    <ul class="legend">
+      <li><span class="door busy"></span>Занят</li>
+      <li><span class="door maybe"></span>Предварительная бронь</li>
+      <li><span class="door"></span>Свободен</li>
+    </ul>
+    <ul class="legend halls-key" aria-label="Залы">
+      <li><span class="door c busy"></span>Классика</li>
+      <li><span class="door a busy"></span>Амбар</li>
+      <li><span class="door p busy"></span>Пикник</li>
+    </ul>
+    <p class="note" id="note"></p>
+  </main>
+</div>
+
+<script>
+(function(){
+  var HALLS = [
+    {key:'c', name:'Классика', color:'var(--classic)'},
+    {key:'a', name:'Амбар',    color:'var(--barn)'},
+    {key:'p', name:'Пикник',   color:'var(--picnic)'}
+  ];
+  var MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  var MONTHS_GEN = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+  var WEEKDAYS = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
+
+  var cfg = {phone:'', seasonFrom:5, seasonTo:9};
+  var busy = {};             // 'YYYY-MM-DD' → {c:'busy'|'maybe', a:…, p:…}
+  var view, selected = null, loadedAt = null;
+
+  var pad = function(n){ return (n < 10 ? '0' : '') + n; };
+  var iso = function(d){ return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
+  var today = iso(new Date());
+  var inSeason = function(m){ return m + 1 >= cfg.seasonFrom && m + 1 <= cfg.seasonTo; };
+
+  function parseCsv(text){
+    var rows = [], row = [], cell = '', q = false;
+    for (var i = 0; i < text.length; i++){
+      var ch = text[i];
+      if (q){
+        if (ch === '"' && text[i + 1] === '"'){ cell += '"'; i++; }
+        else if (ch === '"') q = false;
+        else cell += ch;
+      } else if (ch === '"') q = true;
+      else if (ch === ','){ row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r'){
+        if (ch === '\r' && text[i + 1] === '\n') i++;
+        row.push(cell); rows.push(row); row = []; cell = '';
+      } else cell += ch;
+    }
+    if (cell || row.length){ row.push(cell); rows.push(row); }
+    return rows;
+  }
+
+  function keyOf(hall){
+    var h = String(hall || '').toLowerCase();
+    if (h.indexOf('класс') === 0) return ['c'];
+    if (h.indexOf('амбар') === 0) return ['a'];
+    if (h.indexOf('пикник') === 0) return ['p'];
+    if (h.indexOf('вся') === 0) return ['c', 'a', 'p'];
+    return [];
+  }
+
+  function load(rows){
+    busy = {};
+    rows.slice(1).forEach(function(r){
+      var date = String(r[0] || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+      var state = /бронь/i.test(r[2] || '') && !/предв/i.test(r[2] || '') ? 'busy' : 'maybe';
+      var day = busy[date] || (busy[date] = {});
+      keyOf(r[1]).forEach(function(k){
+        if (day[k] !== 'busy') day[k] = state;   // бронь сильнее предварительной
+      });
+    });
+  }
+
+  function startView(){
+    var d = new Date(), m = d.getMonth(), y = d.getFullYear();
+    if (!inSeason(m)){
+      if (m + 1 > cfg.seasonTo) y++;
+      m = cfg.seasonFrom - 1;
+    }
+    return new Date(y, m, 1);
+  }
+
+  function describe(ds){
+    var d = busy[ds] || {};
+    return HALLS.map(function(h){
+      var s = d[h.key];
+      return h.name + ' ' + (s === 'busy' ? 'занят' : s === 'maybe' ? 'предварительно занят' : 'свободен');
+    }).join(', ');
+  }
+
+  function render(){
+    var y = view.getFullYear(), m = view.getMonth();
+    document.getElementById('title').textContent = MONTHS[m] + ' ' + y;
+    var first = new Date(y, m, 1), lead = (first.getDay() + 6) % 7;
+    var days = new Date(y, m + 1, 0).getDate();
+    var html = '';
+    for (var i = 0; i < lead; i++) html += '<div class="day empty" aria-hidden="true"></div>';
+    for (var n = 1; n <= days; n++){
+      var ds = y + '-' + pad(m + 1) + '-' + pad(n);
+      var cls = ['day'];
+      var off = !inSeason(m), past = ds < today;
+      if (off) cls.push('off');
+      if (past) cls.push('past');
+      if (ds === today) cls.push('today');
+      if (ds === selected) cls.push('sel');
+      var d = busy[ds] || {};
+      var doors = HALLS.map(function(h){
+        return '<span class="door ' + h.key + (d[h.key] ? ' ' + d[h.key] : '') + '"></span>';
+      }).join('');
+      var label = n + ' ' + MONTHS_GEN[m] + (off ? ', площадки не работают' : past ? ', прошло' : ': ' + describe(ds));
+      html += '<button class="' + cls.join(' ') + '" data-d="' + ds + '"' +
+              ((off || past) ? ' disabled' : '') + ' aria-label="' + label + '">' +
+              '<span class="n">' + n + '</span><span class="doors" aria-hidden="true">' + doors + '</span></button>';
+    }
+    document.getElementById('grid').innerHTML = html;
+
+    var min = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    document.getElementById('prev').disabled = view <= min;
+  }
+
+  function showDay(ds){
+    selected = ds;
+    render();
+    var d = busy[ds] || {}, date = new Date(ds + 'T12:00:00');
+    var title = WEEKDAYS[date.getDay()] + ', ' + date.getDate() + ' ' + MONTHS_GEN[date.getMonth()];
+    var free = HALLS.filter(function(h){ return !d[h.key]; }).length;
+    var rows = HALLS.map(function(h){
+      var s = d[h.key];
+      var word = s === 'busy' ? 'занят' : s === 'maybe' ? 'предварительная бронь' : 'свободен';
+      var fill = s === 'busy' ? 'background:currentColor' :
+                 s === 'maybe' ? 'background:repeating-linear-gradient(135deg,currentColor 0 2px,transparent 2px 5px)' : 'opacity:.35';
+      return '<li class="' + (s || 'free') + '"><span class="swatch" style="color:' + h.color + ';' + fill + '"></span>' +
+             '<span class="name">' + h.name + '</span><span class="state">' + word + '</span></li>';
+    }).join('');
+    var tel = String(cfg.phone || '').replace(/[^\d+]/g, '');
+    var cta = tel ? '<a class="call" href="tel:' + tel + '">' +
+                    (free ? 'Позвонить и забронировать' : 'Позвонить, спросить о переносе') + '</a>' : '';
+    var el = document.getElementById('detail');
+    el.innerHTML = '<h3>' + title.charAt(0).toUpperCase() + title.slice(1) + '</h3><ul class="halls">' + rows + '</ul>' + cta;
+    el.hidden = false;
+  }
+
+  function note(text){ document.getElementById('note').textContent = text; }
+  function fail(text){
+    var el = document.getElementById('detail');
+    var tel = String(cfg.phone || '').replace(/[^\d+]/g, '');
+    el.innerHTML = '<p class="msg" style="margin:0">' + text +
+      (tel ? ' Узнать свободные даты можно по телефону <a href="tel:' + tel + '">' + cfg.phone + '</a>.' : '') + '</p>';
+    el.hidden = false;
+  }
+
+  document.getElementById('grid').addEventListener('click', function(e){
+    var b = e.target.closest('.day[data-d]');
+    if (b && !b.disabled) showDay(b.dataset.d);
+  });
+  document.getElementById('prev').onclick = function(){ view = new Date(view.getFullYear(), view.getMonth() - 1, 1); render(); };
+  document.getElementById('next').onclick = function(){ view = new Date(view.getFullYear(), view.getMonth() + 1, 1); render(); };
+
+  fetch('calendar-config.json?t=' + Date.now(), {cache:'no-store'})
+    .then(function(r){ return r.json(); })
+    .then(function(c){
+      for (var k in c) cfg[k] = c[k];
+      view = startView();
+      render();
+      if (!cfg.csv){ fail('Календарь ещё не подключён к данным.'); return; }
+      return fetch(cfg.csv + (cfg.csv.indexOf('?') < 0 ? '?' : '&') + 't=' + Date.now(), {cache:'no-store'})
+        .then(function(r){ if (!r.ok) throw new Error(r.status); return r.text(); })
+        .then(function(t){
+          load(parseCsv(t));
+          loadedAt = new Date();
+          render();
+          note('Площадки работают с ' + MONTHS_GEN[cfg.seasonFrom - 1] + ' по ' + MONTHS[cfg.seasonTo - 1].toLowerCase() +
+               '. Данные обновлены в ' + pad(loadedAt.getHours()) + ':' + pad(loadedAt.getMinutes()) +
+               ' и появляются здесь в течение нескольких минут после бронирования.');
+        });
+    })
+    .catch(function(){
+      if (!view){ view = startView(); render(); }
+      fail('Не удалось загрузить занятость. Проверьте интернет и обновите страницу.');
+    });
+})();
+</script>
+</body>
+</html>
