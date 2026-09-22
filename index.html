@@ -5551,7 +5551,7 @@ function bindToday(){
 
 /* ===== Версия и обновление ===== */
 
-const APP_VERSION = '2026.09.23';
+const APP_VERSION = '2026.09.24';
 
 function isHosted(){ return location.protocol === 'http:' || location.protocol === 'https:'; }
 
@@ -5701,14 +5701,14 @@ const KEY = 'banquet-crm-v1';
 const BUILTIN_SCRIPT_URL = '';
 const STATUS = [
   {id:'new',   label:'Новая',   cls:'s-new'},
-  {id:'tour',  label:'Показ',   cls:'s-tour'},
   {id:'book',  label:'Бронь',   cls:'s-book'},
   {id:'done',  label:'Проведено', cls:'s-done'},
   {id:'lost',  label:'Отказ',   cls:'s-lost'}
 ];
 const HOLD = ['book','done'];            // статусы, которые занимают дату
 const TYPES = ['Свадьба','Корпоратив','День рождения','Юбилей','Выпускной','Крестины','Мастер-класс','Другое'];
-const SOURCES = ['Instagram','Сайт','Рекомендация','Повторный клиент','Звонок','Прошли мимо','Другое'];
+const SOURCES = ['Instagram','VK','Яндекс','Сайт','2ГИС','Рекомендация','Повторный клиент','Звонок','Прошли мимо',
+  'Организатор','Ведущий','Кейтеринг','Другое'];
 const PAY_KINDS = ['Предоплата','Доплата','Финальный расчёт','Депозит за сохранность'];
 const LOG_KINDS = ['Звонок','Сообщение','Встреча','Показ площадки','Заметка'];
 
@@ -6381,13 +6381,7 @@ function drawDrawer(){
       </div>
     </div>
 
-    <div class="card">
-      <div class="eyebrow">Следующий шаг</div>
-      <div class="grid2">
-        <label class="f"><span>Когда</span><input type="date" data-k="nextDate" value="${esc(d.nextDate)}"></label>
-        <label class="f"><span>Что сделать</span><input type="text" data-k="nextText" value="${esc(d.nextText)}" placeholder="Позвонить, выслать смету"></label>
-      </div>
-    </div>
+    ${dealTasksCard(d)}
 
     <div class="card">
       <div class="eyebrow">История общения</div>
@@ -6409,8 +6403,6 @@ function drawDrawer(){
     ${dealPnlCard(d)}
 
     ${dealRentCard(d)}
-
-    ${dealTasksCard(d)}
 
     <div class="card">
       <div class="eyebrow">Заметки</div>
