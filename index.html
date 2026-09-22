@@ -2345,7 +2345,7 @@ async function runSync(force){
                               dealTitle: t.dealId ? ((getDeal(t.dealId)||{}).client || '') : '',
                               assigneeName: (staff().find(u=>u.id===t.assignee)||{}).name || ''})),
                             currency: state.settings.currency || '\u20BD',
-                            settings: JSON.stringify(syncableSettings()),
+                            settings: blankSettings() ? '' : JSON.stringify(syncableSettings()),
                             deleted: JSON.stringify(state.deleted || [])})
     });
     const out = await res.json();
@@ -2380,6 +2380,12 @@ async function runSync(force){
     clearTimeout(sync.timer);
     sync.timer = setTimeout(()=>runSync(), SYNC_RETRY[Math.min(sync.tries++, SYNC_RETRY.length-1)]);
   }finally{ sync.busy = false; }
+}
+
+/* настройки «из коробки»: один сотрудник по умолчанию и никаких реквизитов */
+function blankSettings(){
+  const st = state.settings.staff || [];
+  return st.length <= 1 && !state.settings.company && !state.settings.signer;
 }
 
 function syncableSettings(){
@@ -2478,7 +2484,9 @@ function mergeRemote(out){
                   !(st.templates || []).some(t => t.edited) &&
                   !st.company;
   const fresh = (wasEmpty || factory) && out.settings;
-  if(remoteStamp > localStamp || fresh || forcePullSettings){
+  let remoteRich = false;
+  try{ remoteRich = (JSON.parse(out.settings || '{}').staff || []).length > 1; }catch(e){}
+  if(remoteStamp > localStamp || fresh || forcePullSettings || (blankSettings() && remoteRich)){
     const rs = parseJson(out.settings, null);
     if(rs){
       // ссылка на скрипт, токен и режим выгрузки — свои у каждого устройства
@@ -5543,7 +5551,7 @@ function bindToday(){
 
 /* ===== Версия и обновление ===== */
 
-const APP_VERSION = '2026.09.18';
+const APP_VERSION = '2026.09.22';
 
 function isHosted(){ return location.protocol === 'http:' || location.protocol === 'https:'; }
 
