@@ -306,9 +306,8 @@
           load(parseCsv(t));
           loadedAt = new Date();
           render();
-          note('Площадки работают с ' + MONTHS_GEN[cfg.seasonFrom - 1] + ' по ' + MONTHS[cfg.seasonTo - 1].toLowerCase() +
-               '. Данные обновлены в ' + pad(loadedAt.getHours()) + ':' + pad(loadedAt.getMinutes()) +
-               ' и появляются здесь в течение нескольких минут после бронирования.');
+          note('Данные ориентировочные, уточняйте у менеджера. Обновлены в ' +
+               pad(loadedAt.getHours()) + ':' + pad(loadedAt.getMinutes()) + '.');
         });
     })
     .catch(function(){
