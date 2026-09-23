@@ -583,6 +583,7 @@ body.locked{overflow:hidden}
     <div class="mpane" data-mpane="pnl"><div id="pnlPane"></div></div>
     <div class="mpane" data-mpane="events"><div id="eventsPane"></div></div>
     <div class="mpane" data-mpane="accounts"><div id="accountsPane"></div></div>
+    <div class="mpane" data-mpane="stats"><div id="statsPane"></div></div>
   </section>
 
   <!-- ЗАДАЧИ -->
@@ -765,6 +766,16 @@ body.locked{overflow:hidden}
       </label>
       <p class="note">Выключено: залы автономны, и параллельные мероприятия — норма. Если клиент выкупает всё, отметьте в заявке «Вся территория» — тогда эта дата закроется для остальных залов автоматически.</p>
     </div>
+    <div class="card" data-stab="docs">
+      <div class="eyebrow">Ссылки для отзывов</div>
+      <div class="stack">
+        <label class="f"><span>Яндекс Карты</span><input type="url" id="reviewYandex" placeholder="https://yandex.ru/maps/org/.../reviews/"></label>
+        <label class="f"><span>2ГИС</span><input type="url" id="review2gis" placeholder="https://2gis.ru/.../tab/reviews"></label>
+        <label class="f"><span>VK</span><input type="url" id="reviewVk" placeholder="https://vk.com/villatic отзывы"></label>
+      </div>
+      <p class="note">Через 3 дня после мероприятия в задачах сама появится строка «Попросить отзыв» с готовым текстом и этими ссылками.</p>
+    </div>
+
     <div class="card" data-stab="docs">
       <div class="eyebrow">Реквизиты исполнителя</div>
       <div class="stack">
@@ -2047,6 +2058,9 @@ function renderDocSettings(){
   document.getElementById('company').value = s.company || '';
   document.getElementById('city').value = s.city || '';
   document.getElementById('companyPhone').value = s.companyPhone || '';
+  document.getElementById('reviewYandex').value = s.reviewYandex || '';
+  document.getElementById('review2gis').value = s.review2gis || '';
+  document.getElementById('reviewVk').value = s.reviewVk || '';
   document.getElementById('signer').value = s.signer || '';
   document.getElementById('signerBasis').value = s.signerBasis || '';
   document.getElementById('syncParty').checked = !!s.syncParty;
@@ -2065,7 +2079,7 @@ function renderDocSettings(){
 
 function bindDocSettings(){
   const s = state.settings;
-  ['company','city','companyPhone','signer','signerBasis'].forEach(id=>{
+  ['company','city','companyPhone','signer','signerBasis','reviewYandex','review2gis','reviewVk'].forEach(id=>{
     document.getElementById(id).addEventListener('change', e=>{ s[id]=e.target.value; save(); });
   });
   document.getElementById('syncParty').addEventListener('change', e=>{
@@ -3288,6 +3302,21 @@ const DEFAULT_CHECKLIST = [
 
 function tasks(){ return state.tasks || (state.tasks = []); }
 
+/* задача на отзыв — один раз на заявку, через 3 дня после мероприятия */
+function scheduleReviewTask(d){
+  if(!d.date || tasks().some(t=>t.dealId === d.id && t.reviewTask)) return;
+  const due = new Date(d.date + 'T12:00:00'); due.setDate(due.getDate() + 3);
+  const links = [];
+  if(state.settings.reviewYandex) links.push('Яндекс: ' + state.settings.reviewYandex);
+  if(state.settings.review2gis) links.push('2ГИС: ' + state.settings.review2gis);
+  if(state.settings.reviewVk) links.push('VK: ' + state.settings.reviewVk);
+  const text = 'Добрый день! Спасибо, что выбрали Villatic. Будем очень благодарны за отзыв' +
+    (links.length ? ' — вот ссылки: ' + links.join(', ') : ', оставьте его на удобной вам площадке') + '.';
+  newTask({title:'Попросить отзыв — ' + (d.client || 'клиент'), dealId:d.id, due:iso(due),
+           reviewTask:true, note:text}, true);
+  save();
+}
+
 function newTask(o, silent){
   const t = Object.assign({
     id:uid(), title:'', dealId:'', assignee:'', due:'', time:'', done:false,
@@ -3485,6 +3514,44 @@ function bindTasks(){
     if(act.dataset.act === 'del'){
       if(confirm('Удалить задачу?')){ delTask(row.dataset.t); renderTasks(); }
     }
+  };
+}
+
+/* ---------- ссылка для клиента ---------- */
+function clientPageUrl(page, params){
+  const base = location.href.replace(/index\.html.*$/, '').replace(/\/?$/, '/');
+  const qs = new URLSearchParams(params).toString();
+  return base + page + (qs ? '?' + qs : '');
+}
+function clientLinkCard(d){
+  const url = d.clientLinkId ? clientPageUrl('client.html', {id:d.clientLinkId}) : '';
+  return `<div class="card">
+    <div class="eyebrow">Клиенту</div>
+    <p class="note" style="margin:0 0 10px">Личная страница со статусом брони и остатком к оплате — без входа, по ссылке.
+      Обновляется вместе с обычной синхронизацией.</p>
+    <div class="row">
+      <button class="btn sm" id="makeClientLink">${d.clientLinkId ? 'Скопировать ссылку' : 'Создать ссылку для клиента'}</button>
+      <button class="btn ghost sm" id="openQuote">Открыть калькулятор</button>
+    </div>
+    ${url ? `<p class="note" style="margin-top:8px;word-break:break-all">${esc(url)}</p>` : ''}
+  </div>`;
+}
+function bindClientLink(d){
+  const body = document.getElementById('drawerBody');
+  const btn = body.querySelector('#makeClientLink');
+  if(btn) btn.onclick = ()=>{
+    if(!d.clientLinkId){
+      d.clientLinkId = uid() + uid();
+      d.updated = new Date().toISOString();
+      save(); drawDrawer();
+    }
+    const url = clientPageUrl('client.html', {id:d.clientLinkId});
+    navigator.clipboard.writeText(url).then(()=>toast('Ссылка скопирована')).catch(()=>toast(url));
+  };
+  const q = body.querySelector('#openQuote');
+  if(q) q.onclick = ()=>{
+    const url = clientPageUrl('quote.html', {});
+    navigator.clipboard.writeText(url).then(()=>toast('Ссылка на калькулятор скопирована')).catch(()=>toast(url));
   };
 }
 
@@ -4218,7 +4285,7 @@ let opFilter = {month:''};
 function renderMoneyTabs(){
   const own = canSeeFinance();
   const tabs = own
-    ? [['summary','Сводка'], ['ops','Операции'], ['pnl','ОПиУ'], ['events','По событиям'], ['accounts','Кассы']]
+    ? [['summary','Сводка'], ['ops','Операции'], ['pnl','ОПиУ'], ['events','По событиям'], ['accounts','Кассы'], ['stats','Аналитика']]
     : [['ops','Внести расход']];
   if(!tabs.some(t=>t[0] === mtab)) mtab = tabs[0][0];
   document.getElementById('mtabs').innerHTML = tabs.map(t=>
@@ -4406,6 +4473,50 @@ function renderAccounts(){
     <div class="v acc">${fmtMoney(totalBalance())}</div>
     <div class="n">сумма по всем кассам на сегодня</div></div>
   <p class="note">Остаток = начальный остаток + оплаты по событиям и приходы − расходы, с учётом переводов. Начальные остатки задаются в настройках, вкладка «Учёт».</p>`;
+}
+
+/* ---------- аналитика: источники и команда ---------- */
+function renderStats(){
+  const host = document.getElementById('statsPane');
+  const real = state.deals.filter(d => !(d.status === 'new' && !d.created));   // на всякий случай
+
+  const bySource = {};
+  real.forEach(d => {
+    const k = d.source || 'Не указан';
+    const row = bySource[k] || (bySource[k] = {n:0, hold:0, sum:0});
+    row.n++;
+    if(HOLD.includes(d.status)){ row.hold++; row.sum += dealTotal(d); }
+  });
+
+  const byOwner = {};
+  real.forEach(d => {
+    const u = staff().find(x => x.id === d.owner);
+    const k = u ? u.name : 'Не назначен';
+    const row = byOwner[k] || (byOwner[k] = {n:0, hold:0, sum:0});
+    row.n++;
+    if(HOLD.includes(d.status)){ row.hold++; row.sum += dealTotal(d); }
+  });
+
+  const table = (title, obj, emptyHint) => {
+    const rows = Object.entries(obj).sort((a,b) => b[1].sum - a[1].sum);
+    if(!rows.length) return `<div class="section-h"><span class="eyebrow">${title}</span><i class="line"></i></div>
+      <p class="note">${emptyHint}</p>`;
+    return `<div class="section-h"><span class="eyebrow">${title}</span><i class="line"></i></div>
+    <table><thead><tr><th>${title === 'По источникам' ? 'Источник' : 'Сотрудник'}</th>
+      <th class="num">Заявок</th><th class="num">В брони</th><th class="num">Конверсия</th>
+      <th class="num">Выручка</th><th class="num">Средний чек</th></tr></thead><tbody>
+      ${rows.map(([name, r]) => `<tr><td>${esc(name)}</td>
+        <td class="num">${r.n}</td><td class="num">${r.hold}</td>
+        <td class="num">${r.n ? Math.round(r.hold / r.n * 100) : 0}%</td>
+        <td class="num">${fmtMoney(r.sum)}</td>
+        <td class="num">${r.hold ? fmtMoney(Math.round(r.sum / r.hold)) : '—'}</td></tr>`).join('')}
+    </tbody></table>`;
+  };
+
+  host.innerHTML = table('По источникам', bySource, 'Пока нет заявок с указанным источником.') +
+    '<div style="height:20px"></div>' +
+    table('По сотрудникам', byOwner, 'Назначьте ответственного в заявке, чтобы увидеть разбивку.') +
+    '<p class="note" style="margin-top:16px">Конверсия — доля заявок, дошедших до брони или проведённого события. Выручка считается по заявкам в этих статусах, включая прокат и поляну.</p>';
 }
 
 /* ---------- прибыль в карточке заявки ---------- */
@@ -5420,14 +5531,16 @@ function dayItems(ds){
   const give = rentals().filter(o => o.date === ds && RENT_LIVE.includes(o.status));
   const take = rentals().filter(o => (o.dateTo || o.date) === ds && o.date !== ds && RENT_LIVE.includes(o.status));
   const holds = ds === today() ? state.deals.filter(d => holdExpired(d)) : [];
+  const waiting = ds === today() ? state.deals.filter(d => waitMinutes(d) >= 60)
+    .sort((a, b) => waitMinutes(b) - waitMinutes(a)) : [];
   const busy = events.filter(d => HOLD.includes(d.status));
   const free = state.settings.venues.filter(v => !busy.some(x => x.whole || x.venue === v.id));
-  return {events, jobs, give, take, holds, free, busy};
+  return {events, jobs, give, take, holds, waiting, free, busy};
 }
 
 function todayCount(){
   const i = dayItems(today());
-  return i.events.length + i.jobs.length + i.give.length + i.take.length + i.holds.length;
+  return i.events.length + i.jobs.length + i.give.length + i.take.length + i.holds.length + i.waiting.length;
 }
 
 function renderToday(){
@@ -5489,6 +5602,12 @@ function renderToday(){
       <span class="mono t">!</span>
       <span class="what"><b>${esc(d.client || 'заявка')}</b><br>
         <span class="sub">${fmtDate(d.date)} · ${esc(venueLabel(d))}</span></span>
+    </div>`)),
+
+    block('Ждут ответа', i.waiting.map(d => `<div class="trow late" data-deal="${d.id}">
+      <span class="mono t">${waitLabel(waitMinutes(d))}</span>
+      <span class="what"><b>${esc(d.client || 'заявка')}</b><br>
+        <span class="sub">${esc(d.source || '')}${d.phone ? ' · ' + esc(d.phone) : ''}</span></span>
     </div>`))
   ].filter(Boolean).join('');
 
@@ -5551,7 +5670,7 @@ function bindToday(){
 
 /* ===== Версия и обновление ===== */
 
-const APP_VERSION = '2026.09.24';
+const APP_VERSION = '2026.09.25';
 
 function isHosted(){ return location.protocol === 'http:' || location.protocol === 'https:'; }
 
@@ -5956,6 +6075,15 @@ function renderFilters(){
   box.onclick = e => { const b = e.target.closest('button'); if(!b) return; ui.filter = b.dataset.f; renderLeads(); };
 }
 
+function waitMinutes(d){
+  if(d.status !== 'new' || d.firstContactAt || !d.created) return 0;
+  return Math.round((Date.now() - new Date(d.created).getTime()) / 60000);
+}
+function waitLabel(m){
+  if(m < 60) return m + ' мин';
+  const h = Math.floor(m / 60);
+  return h < 24 ? h + ' ч' : Math.floor(h / 24) + ' дн';
+}
 function dealCard(d){
   const v = venue(d.venue), st = statusOf(d.status), p = paid(d), rest = due(d);
   const pct = dealTotal(d) ? Math.min(100, Math.round(p/dealTotal(d)*100)) : 0;
@@ -5977,6 +6105,7 @@ function dealCard(d){
           ? (holdExpired(d) ? '<span class="tag due">срок истёк</span>'
                             : `<span class="tag s-tour">думает · ${fmtLeft(holdLeft(d))}</span>`) : ''}
         ${conflictsFor(d).length && !queuePos(d) ? '<span class="tag due">дата занята</span>' : ''}
+        ${waitMinutes(d) >= 60 ? `<span class="tag due">ждёт ответа ${waitLabel(waitMinutes(d))}</span>` : ''}
         ${d.guests?`<span class="sub">${d.guests} гост.</span>`:''}
       </div>
       <div class="meta">${esc(d.type||'Событие')} · ${d.whole ? '<b>Вся территория</b>' : esc(v.name)} · ${fmtDateLong(d.date)}</div>
@@ -6133,6 +6262,7 @@ function renderMoney(){
   if(mtab === 'pnl'){ renderPnl(); return; }
   if(mtab === 'events'){ renderEventPnl(); return; }
   if(mtab === 'accounts'){ renderAccounts(); return; }
+  if(mtab === 'stats'){ renderStats(); return; }
   renderSummary();
 }
 function renderSummary(){
@@ -6271,7 +6401,7 @@ function blankDeal(){
     type:TYPES[0], venue:state.settings.venues[0].id, date:'',
     timeStart:state.settings.venues[0].from || '10:00', timeEnd:state.settings.venues[0].to || '23:00', guests:'',
     status:'new', amount:'', payments:[], history:[], nextDate:'', nextText:'', notes:'',
-    whole:false, plot:false, plotAmount:'',
+    whole:false, plot:false, plotAmount:'', owner:(me()||{}).id || '', firstContactAt:'',
     party:{kind:'person'}, contractNo:'', contractDate:''};
 }
 function getDeal(id){ return state.deals.find(d=>d.id===id); }
@@ -6313,6 +6443,7 @@ function drawDrawer(){
           <label class="f"><span>Мессенджер / почта</span><input type="text" data-k="contact" value="${esc(d.contact)}"></label>
         </div>
         <label class="f"><span>Откуда пришли</span><select data-k="source">${SOURCES.map(s=>`<option ${s===d.source?'selected':''}>${s}</option>`).join('')}</select></label>
+        <label class="f"><span>Ответственный</span><select data-k="owner"><option value="">—</option>${staff().map(u=>`<option value="${u.id}" ${u.id===d.owner?'selected':''}>${esc(u.name)}</option>`).join('')}</select></label>
       </div>
     </div>
 
@@ -6383,6 +6514,8 @@ function drawDrawer(){
 
     ${dealTasksCard(d)}
 
+    ${clientLinkCard(d)}
+
     <div class="card">
       <div class="eyebrow">История общения</div>
       <div class="row" style="align-items:flex-end;margin-bottom:10px">
@@ -6434,6 +6567,7 @@ function bindDrawer(d){
   bindPlan(d);
   bindParty(d);
   bindDealTasks(d);
+  bindClientLink(d);
   bindDealRent(d);
 
   body.querySelectorAll('[data-k]').forEach(el=>{
@@ -6454,6 +6588,8 @@ function bindDrawer(d){
       }
       d[k] = val;
       d.updated = new Date().toISOString();
+      if(k === 'status' && val !== 'new' && !d.firstContactAt) d.firstContactAt = new Date().toISOString();
+      if(k === 'status' && val === 'done') scheduleReviewTask(d);
       if(k === 'venue'){
         const nv = venue(val);
         const wasDefault = state.settings.venues.some(v=>v.from === d.timeStart && v.to === d.timeEnd);
@@ -6498,6 +6634,7 @@ function bindDrawer(d){
     if(!text){ toast('Напишите пару слов'); return; }
     d.history = d.history || [];
     d.history.unshift({id:uid(), date:today(), kind:document.getElementById('logKind').value, text});
+    if(!d.firstContactAt) d.firstContactAt = new Date().toISOString();
     save(); drawDrawer(); toast('Записано');
   };
   body.querySelector('#logText').addEventListener('keydown', e=>{ if(e.key==='Enter') body.querySelector('#addLog').click(); });
@@ -6542,6 +6679,8 @@ function flatten(d){
     cancelDate:(d.cancel&&d.cancel.date)||'', retained:(d.cancel&&+d.cancel.retained)||'',
     refunded:(d.cancel&&+d.cancel.refunded)||'', cancelReason:(d.cancel&&d.cancel.reason)||'', contractNo:d.contractNo||'', contractDate:d.contractDate||'',
     nextDate:d.nextDate||'', nextText:d.nextText||'', notes:d.notes||'',
+    ownerId:d.owner||'', owner:(staff().find(u=>u.id===d.owner)||{}).name||'',
+    firstContactAt:d.firstContactAt||'', clientLinkId:d.clientLinkId||'',
     payments:JSON.stringify(d.payments||[]), history:JSON.stringify(d.history||[]),
     plan:JSON.stringify(d.plan||{tables:[]}),
     flags:JSON.stringify({checklistDone:!!d.checklistDone, amountManual:!!d.amountManual,
@@ -6562,6 +6701,7 @@ function unflatten(r){
     updated:r.updated||'', contractNo:r.contractNo||'', contractDate:r.contractDate||'',
     party: (function(){ try{ return JSON.parse(r.party||'{}'); }catch(e){ return {kind:'person'}; } })(),
     nextDate:r.nextDate, nextText:r.nextText, notes:r.notes,
+    owner:r.ownerId||'', firstContactAt:r.firstContactAt||'', clientLinkId:r.clientLinkId||'',
     payments:parse(r.payments), history:parse(r.history),
     plan:(function(){ try{ return JSON.parse(r.plan||'{"tables":[]}'); }catch(e){ return {tables:[]}; } })(),
     ...(function(){ let f = {}; try{ f = JSON.parse(r.flags || '{}'); }catch(e){}
