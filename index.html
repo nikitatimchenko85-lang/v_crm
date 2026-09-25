@@ -5670,7 +5670,7 @@ function bindToday(){
 
 /* ===== Версия и обновление ===== */
 
-const APP_VERSION = '2026.09.25';
+const APP_VERSION = '2026.09.26';
 
 function isHosted(){ return location.protocol === 'http:' || location.protocol === 'https:'; }
 
@@ -5683,8 +5683,12 @@ async function checkUpdate(manual){
     const res = await fetch('version.json?t=' + Date.now(), {cache:'no-store'});
     const j = await res.json();
     if(!j.version) throw new Error('нет номера версии');
-    if(j.version === APP_VERSION){
-      if(manual) toast('У вас последняя версия: ' + APP_VERSION);
+    if(j.version <= APP_VERSION){         // равно или СТАРШЕ — показывать нечего
+      const bar = document.getElementById('updBar');
+      if(bar) bar.hidden = true;          // спрятать, если раньше уже показывали при более старой проверке
+      if(manual) toast(j.version === APP_VERSION
+        ? 'У вас последняя версия: ' + APP_VERSION
+        : 'У вас версия ' + APP_VERSION + ', на сайте — ' + j.version + '. Похоже, version.json ещё не обновили при последней заливке.');
       return;
     }
     showUpdateBar(j);

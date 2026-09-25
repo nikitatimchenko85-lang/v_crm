@@ -1,6 +1,7 @@
 {
   "phone": "+7 913 554-24-34",
   "telegram": "",
-  "max": "",
-  "pricing": "https://docs.google.com/spreadsheets/d/e/2PACX-1vScfID-rdidL9V2kCH5fcSWraEFTiPAUd9Y1nu8tS1MTu-sphBaUW18i6NfmEApZwLY6DVDo4bSmm2W/pub?gid=1606029547&single=true&output=csv"
+  "max": "u/f9LHodD0cOKZIe-p3SM4Q1IJXXfFZVprdAOs4x10xJS-PXnGhiz76RGzw10",
+  "pricing": "https://docs.google.com/spreadsheets/d/e/2PACX-1vScfID-rdidL9V2kCH5fcSWraEFTiPAUd9Y1nu8tS1MTu-sphBaUW18i6NfmEApZwLY6DVDo4bSmm2W/pub?gid=1606029547&single=true&output=csv",
+  "leadHook": "https://script.google.com/macros/s/AKfycbzSCDVyUSrTCsR_azpqGT7O2yeSlTHd3md7XF_c4lisKC_WGSZNWOQrw9zDb1RsiZI/exec?hook=lead"
 }
