@@ -1,7 +1,7 @@
 {
   "name": "VILLATIC CRM",
   "short_name": "VILLATIC",
-  "start_url": "./",
+  "start_url": "crm.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
