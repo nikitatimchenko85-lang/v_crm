@@ -4666,10 +4666,10 @@ function importLeads(list){
       if(l.hall === 'Вся территория') d.whole = true;
       else { const v = state.settings.venues.find(v=>v.name === l.hall); if(v) d.venue = v.id; }
     }
-    d.nextDate = today();
-    d.nextText = 'Перезвонить по новой заявке';
+    d.fromLead = true;
     if(d.date) applyPrice(d);
     state.deals.push(d);
+    newTask({title:'Перезвонить по новой заявке', dealId:d.id, due:today()}, true);
     logPush({id:d.id, name:d.client, a:'заявка принята автоматически', to:d.source});
     added++;
   });
@@ -4700,7 +4700,7 @@ function pendingNotices(){
   if(n.pay) state.deals.forEach(d=>(d.payments||[]).forEach(p=>
     add('pay:' + p.id, 'Оплата ' + fmtMoney(p.sum) + ' — ' + (d.client || '') + ' (' + (p.kind || '') + ')')));
 
-  if(n.lead) state.deals.filter(d=>d.source && d.nextText === 'Перезвонить по новой заявке').forEach(d=>
+  if(n.lead) state.deals.filter(d=>d.fromLead || d.nextText === 'Перезвонить по новой заявке').forEach(d=>
     add('lead:' + d.id, 'Новая заявка: ' + (d.client || '') + (d.phone ? ', ' + d.phone : '')));
 
   return out.slice(0, 20);
@@ -5677,7 +5677,7 @@ function bindToday(){
 
 /* ===== Версия и обновление ===== */
 
-const APP_VERSION = '2026.09.26';
+const APP_VERSION = '2026.09.27';
 
 function isHosted(){ return location.protocol === 'http:' || location.protocol === 'https:'; }
 
@@ -5926,6 +5926,22 @@ function load(){
         st.settings.oneADay = false;
         st.settings.autonomyApplied = true;
       }
+      if(!st.settings.nextStepMigrated){        // «следующий шаг» → обычные задачи, которые можно закрыть
+        const now = new Date().toISOString();
+        st.tasks = st.tasks || [];
+        (st.deals || []).forEach(d=>{
+          if(!d.nextText && !d.nextDate) return;
+          if(d.nextText === 'Перезвонить по новой заявке') d.fromLead = true;
+          const tid = 'mig-' + d.id;                  // одинаковый id на всех устройствах — без дублей
+          if(!['done','lost'].includes(d.status) && !st.tasks.some(t=>t.id === tid)){
+            st.tasks.push({id:tid, title:d.nextText || 'Связаться с клиентом', dealId:d.id,
+              assignee:'', due:d.nextDate || '', time:'', done:false, repeat:'none', note:'',
+              created:now, createdBy:'', updated:now});
+          }
+          d.nextDate = ''; d.nextText = ''; d.updated = now;
+        });
+        st.settings.nextStepMigrated = true;
+      }
       if(!st.settings.kpApplied){              // прайс и часы из КП сезона 2026
         applyKpPrices(st);
         st.settings.kpApplied = true;
@@ -6095,14 +6111,20 @@ function waitLabel(m){
   const h = Math.floor(m / 60);
   return h < 24 ? h + ' ч' : Math.floor(h / 24) + ' дн';
 }
+/* ближайшая незакрытая задача по заявке — она и есть «следующий шаг» */
+function nextTask(d){
+  return tasks().filter(t=>t.dealId === d.id && !t.done && t.due)
+    .sort((a,b)=>(a.due + (a.time||'')).localeCompare(b.due + (b.time||'')))[0] || null;
+}
 function dealCard(d){
   const v = venue(d.venue), st = statusOf(d.status), p = paid(d), rest = due(d);
   const pct = dealTotal(d) ? Math.min(100, Math.round(p/dealTotal(d)*100)) : 0;
-  const nd = daysFromToday(d.nextDate);
+  const nt = nextTask(d);
+  const nd = nt ? daysFromToday(nt.due) : null;
   let next = '';
-  if(d.nextText || d.nextDate){
+  if(nt){
     const late = nd!==null && nd<=0;
-    next = `<div class="next">${late?'<span class="tag due">'+(nd<0?'просрочено':'сегодня')+'</span>':'<span class="sub">'+fmtDate(d.nextDate)+'</span>'} ${esc(d.nextText||'связаться')}</div>`;
+    next = `<div class="next">${late?'<span class="tag due">'+(nd<0?'просрочено':'сегодня')+'</span>':'<span class="sub">'+fmtDate(nt.due)+'</span>'} ${esc(nt.title)}</div>`;
   }
   return `<button class="deal" data-id="${d.id}">
     <i class="vstrip" style="background:${v.color}"></i>
@@ -6146,13 +6168,14 @@ function renderLeads(){
   }
 
   const overdue = [], rest = [];
+  const nextDue = d => { const t = nextTask(d); return t ? t.due : ''; };
   list.forEach(d=>{
-    const nd = daysFromToday(d.nextDate);
+    const nd = daysFromToday(nextDue(d));
     const late = (nd!==null && nd<=0) || holdExpired(d);
     (late && !['done','lost'].includes(d.status) ? overdue : rest).push(d);
   });
-  const rank = d => HOLD.includes(d.status) ? (d.date||'9999') : '0'+(d.nextDate||d.date||'9999');
-  overdue.sort((a,b)=>(a.nextDate||'').localeCompare(b.nextDate||''));
+  const rank = d => HOLD.includes(d.status) ? (d.date||'9999') : '0'+(nextDue(d)||d.date||'9999');
+  overdue.sort((a,b)=>nextDue(a).localeCompare(nextDue(b)));
   rest.sort((a,b)=>rank(a).localeCompare(rank(b)));
 
   let html = '';
