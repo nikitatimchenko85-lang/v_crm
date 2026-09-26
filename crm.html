@@ -197,6 +197,8 @@ body.with-today header .bar{max-width:none;margin-right:356px}
 #setup .gatebox p{margin-bottom:14px}
 #setupMsg{white-space:pre-line;font-size:12.5px;line-height:1.45}
 
+.arrange{float:right;display:flex;gap:4px;margin-top:-6px}
+.arrange .btn{min-height:30px;padding:0 10px}
 .plansvg{width:100%;height:auto;touch-action:none;user-select:none}
 .plansvg .room{fill:#fff;stroke:#151C24;stroke-width:.05}
 .plansvg .grid line{stroke:#E4E7E2;stroke-width:.015}
@@ -2769,6 +2771,7 @@ const FIELD_LABELS = {
   notes:'заметки', contractNo:'номер договора', contractDate:'дата договора'
 };
 const SETTINGS_LABELS = {
+  cardOrder:'порядок блоков в заявке',
   venues:'площадки', templates:'шаблоны документов', oneADay:'правило одного события в день',
   syncParty:'выгрузка реквизитов', scriptUrl:'ссылка на таблицу', autoSync:'автовыгрузка',
   currency:'валюта', company:'реквизиты исполнителя', city:'город', companyPhone:'телефон исполнителя',
@@ -5054,8 +5057,10 @@ function planCard(d){
             ${st.guests}${st.need ? ' из ' + st.need : ''}</div></div>
       </div>`
       : `<p class="note" style="margin:0 0 10px">Схема не составлена. Зал ${g.w}×${g.h} м.</p>`}
+    ${planOf(d).clientAt ? `<p class="note" style="margin:0 0 10px">Клиент правил план в личном кабинете ${new Date(planOf(d).clientAt).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}.</p>` : ''}
     <div class="row">
       <button class="btn sm" id="openPlan">${st.tables ? 'Открыть схему' : 'Составить схему'}</button>
+      ${st.tables ? '<button class="btn ghost sm" id="printSeating">Рассадка · PDF</button>' : ''}
       ${st.tables ? '<button class="btn ghost sm" id="printOrder">Наряд на монтаж</button>' : ''}
       ${st.tables ? '<button class="btn ghost sm" id="tgOrder">Отправить в Telegram</button>' : ''}
     </div>
@@ -5068,6 +5073,8 @@ function bindPlan(d){
   if(open) open.onclick = () => openPlanner(d.id);
   const pr = body.querySelector('#printOrder');
   if(pr) pr.onclick = () => printWorkOrder(d);
+  const ps = body.querySelector('#printSeating');
+  if(ps) ps.onclick = () => printSeating(d);
   const tg = body.querySelector('#tgOrder');
   if(tg) tg.onclick = () => sendWorkOrder(d);
 }
@@ -5416,6 +5423,39 @@ function printWorkOrder(d){
   else { dl(new Blob([html], {type:'text/html;charset=utf-8'}), 'naryad.html'); toast('Окно заблокировано — файл скачан'); }
 }
 
+/* схема + гости по столам — для хостес и администратора; печать или «Сохранить как PDF» */
+function printSeating(d){
+  const tables = planOf(d).tables || [];
+  const lists = tables.map((t, i) => {
+    const names = (t.names || []).map((n, k) => n && String(n).trim() ? `<li><b>${k + 1}.</b> ${esc(n)}</li>` : '').join('');
+    return `<div class="tl"><h3>${t.stand ? 'Фуршетный стол' : 'Стол'} ${i + 1} <span>${t.stand ? '' : (+t.guests || 0) + ' мест'}</span></h3>
+      ${names ? `<ol>${names}</ol>` : '<p class="e">гости не вписаны</p>'}</div>`;
+  }).join('');
+  const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>Рассадка — ${esc(d.client || '')}</title>
+<style>
+  body{font-family:-apple-system,'Segoe UI',Roboto,sans-serif;color:#151C24;margin:0;background:#ECEEEB}
+  .sheet{max-width:190mm;margin:14px auto;background:#fff;padding:12mm;box-shadow:0 1px 6px rgba(0,0,0,.08)}
+  h1{font-size:20px;margin:0} .sub{color:#5A6570;font-size:13px;margin:3px 0 10px}
+  .plan{border:1px solid #D8DCD6;border-radius:4px;padding:2mm}
+  .lists{columns:3;column-gap:8mm;margin-top:6mm} .tl{break-inside:avoid;margin-bottom:5mm}
+  .tl h3{font-size:13px;margin:0 0 2mm} .tl h3 span{color:#8A939C;font-weight:400}
+  .tl ol{list-style:none;margin:0;padding:0;font-size:12px;line-height:1.5} .e{font-size:12px;color:#8A939C;margin:0}
+  .tools{position:sticky;top:0;background:#151C24;color:#fff;padding:10px 16px;display:flex;align-items:center;font-size:14px}
+  .tools button{background:#fff;color:#151C24;border:0;border-radius:7px;padding:7px 13px;font-weight:600;cursor:pointer;margin-left:auto}
+  ${planStyles()}
+  @media print{.tools{display:none}body{background:#fff}.sheet{box-shadow:none;margin:0;padding:0;max-width:none}}
+</style></head><body>
+<div class="tools"><b>Рассадка</b><button onclick="window.print()">Печать или PDF</button></div>
+<div class="sheet"><h1>${esc(d.client || 'Событие')}</h1>
+  <div class="sub">${fmtDateLong(d.date)} · ${esc(venueLabel(d))} · ${planStats(d).guests} гостей</div>
+  <div class="plan">${planSvg(d, false)}</div>
+  <div class="lists">${lists}</div>
+</div></body></html>`;
+  const w = window.open('', '_blank');
+  if(w){ w.document.write(html); w.document.close(); }
+  else { dl(new Blob([html], {type:'text/html;charset=utf-8'}), 'rassadka.html'); toast('Окно заблокировано — файл скачан'); }
+}
+
 async function sendWorkOrder(d){
   if(!state.settings.scriptUrl){ toast('Сначала подключите таблицу'); return; }
   toast('Отправляю…');
@@ -5699,7 +5739,7 @@ function bindToday(){
 
 /* ===== Версия и обновление ===== */
 
-const APP_VERSION = '2026.09.28';
+const APP_VERSION = '2026.09.29';
 
 function isHosted(){ return location.protocol === 'http:' || location.protocol === 'https:'; }
 
@@ -5861,7 +5901,7 @@ const HOLD = ['book','done'];            // статусы, которые за�
 const TYPES = ['Свадьба','Корпоратив','День рождения','Юбилей','Выпускной','Крестины','Мастер-класс','Другое'];
 const SOURCES = ['Instagram','VK','Яндекс','Сайт','2ГИС','Рекомендация','Повторный клиент','Звонок','Прошли мимо',
   'Организатор','Ведущий','Кейтеринг','Другое'];
-const PAY_KINDS = ['Предоплата','Доплата','Финальный расчёт','Депозит за сохранность'];
+const PAY_KINDS = ['Предоплата','Доплата','Доплата за поляну','Финальный расчёт','Депозит за сохранность'];
 const LOG_KINDS = ['Звонок','Сообщение','Встреча','Показ площадки','Заметка'];
 
 const DEFAULT_VENUES = [
@@ -6483,6 +6523,8 @@ function drawDrawer(){
   const p = paid(d), rest = due(d);
 
   document.getElementById('drawerBody').innerHTML = `
+    <div class="row" style="justify-content:flex-end;margin:-4px 0 8px"><button class="btn ghost sm" id="arrangeBtn">${ui.arrangeCards ? 'Готово' : '⇅ Порядок блоков'}</button></div>
+    ${plotRequestCard(d)}
     ${conf.length ? `<div class="warnbox">
         <b>${HOLD.includes(d.status) ? 'Двойная бронь' : 'Дата занята'}</b><br>
         ${conf.map(c=>c.type==='venue'
@@ -6611,6 +6653,9 @@ function drawDrawer(){
         <div class="t">${x.f ? esc(x.f) + ': ' + esc(x.from) + ' → ' + esc(x.to) : esc(x.a) + (x.to ? ' · ' + esc(x.to) : '')}</div></div>`).join('')}
       </div>` : ''}`;
 
+  orderDealCards();
+  document.getElementById('arrangeBtn').onclick = ()=>{ ui.arrangeCards = !ui.arrangeCards; drawDrawer(); };
+  bindPlotRequest(d);
   bindDrawer(d);
 }
 
@@ -6669,12 +6714,88 @@ function importAddons(list){
     const d = state.deals.find(x=>x.clientLinkId && x.clientLinkId === a.token);
     if(!d) return;                                         // заявка ещё не пришла — заберём при следующей загрузке
     seen.push(a.id);
-    newTask({title:'Допзаказ из кабинета: ' + a.text + (a.sum ? ' (≈ ' + fmtMoney(a.sum) + ')' : ''), dealId:d.id, due:today()}, true);
+    const items = (a.items || []).filter(i=>i.id !== 'plot' && catalog().some(c=>c.id === i.id));
+    const plot = (a.items || []).find(i=>i.id === 'plot');
+    if(items.length){
+      // выбранное клиентом сразу становится нарядом проката по заявке — остатки и сумма считаются как обычно
+      newOrder({dealId:d.id, renterType:'client', renterName:d.client || '', date:d.date || '', dateTo:d.date || '',
+        items: items.map(i=>({itemId:i.id, qty:+i.qty || 1, price:+i.price || catItem(i.id).price})),
+        note:'Из личного кабинета · кабинет #' + a.id});
+    }
+    if(plot && !d.plot) d.plotRequest = {id:a.id, price:+plot.price || plotPriceFor(d) || 0, at:new Date().toISOString()};
+    if(!items.length && !plot) d.addonsDone = (d.addonsDone || []).concat({id:a.id, status:'передан менеджеру'});
+    d.updated = new Date().toISOString();
+    newTask({title:'Допзаказ из кабинета: ' + a.text + (a.sum ? ' (≈ ' + fmtMoney(a.sum) + ')' : '') +
+      (items.length ? ' — наряд создан, проверьте наличие' : ''), dealId:d.id, due:today()}, true);
     logPush({id:d.id, name:d.client, a:'допзаказ из кабинета', to:a.text});
     n++;
   });
   while(seen.length > 500) seen.shift();
   return n;
+}
+
+/* клиент решил про выездную регистрацию уже после договора и оплаты: менеджер подтверждает,
+   сумма поляны добавляется к заявке, в кабинете клиента появляется остаток к доплате */
+function plotRequestCard(d){
+  const r = d.plotRequest; if(!r || d.plot) return '';
+  const sum = r.price || plotPriceFor(d) || 0;
+  return `<div class="warnbox" style="background:#FFF6E5;border-color:#E9D3A4">
+    <b>Клиент просит поляну для выездной регистрации</b> — +${fmtMoney(sum)}.
+    ${paid(d) || d.contractNo ? '<br>Договор уже заключён: после добавления оформите допсоглашение и выставьте доплату.' : ''}
+    <div class="row" style="margin-top:8px"><button class="btn sm" id="plotYes">Добавить в заявку</button>
+      <button class="btn ghost sm" id="plotNo">Отказать</button></div></div>`;
+}
+function bindPlotRequest(d){
+  const yes = document.getElementById('plotYes'), no = document.getElementById('plotNo');
+  const done = status => { d.addonsDone = (d.addonsDone || []).concat({id:d.plotRequest.id, status}); delete d.plotRequest; d.updated = new Date().toISOString(); };
+  if(yes) yes.onclick = ()=>{
+    const sum = d.plotRequest.price || plotPriceFor(d) || 0;
+    d.plot = true; d.plotAmount = sum; d.plotManual = true;
+    done('добавлено в заказ');
+    logPush({id:d.id, name:d.client, a:'добавлена поляна по запросу из кабинета', to:fmtMoney(sum)});
+    if(paid(d) || d.contractNo)
+      newTask({title:'Допсоглашение на поляну и счёт на ' + fmtMoney(sum), dealId:d.id, due:today()}, true);
+    save(); drawDrawer(); toast('Поляна добавлена — клиент увидит доплату в кабинете');
+  };
+  if(no) no.onclick = ()=>{
+    if(!confirm('Отказать в поляне? Клиент увидит отказ в кабинете.')) return;
+    done('отклонено'); logPush({id:d.id, name:d.client, a:'отказано в поляне по запросу из кабинета'});
+    save(); drawDrawer();
+  };
+}
+
+/* ---------- порядок блоков в карточке заявки: общий для всех устройств ---------- */
+function orderDealCards(){
+  const body = document.getElementById('drawerBody');
+  const cards = [...body.children].filter(el=>el.classList.contains('card') && el.querySelector(':scope > .eyebrow'));
+  cards.forEach(c=>{ c.dataset.block = c.querySelector(':scope > .eyebrow').textContent.trim(); });
+  const saved = state.settings.cardOrder || [];
+  if(saved.length){
+    const natural = cards.map(c=>c.dataset.block), result = saved.filter(k=>natural.includes(k));
+    natural.forEach((k, i)=>{                               // новые блоки встают за своим соседом по умолчанию
+      if(result.includes(k)) return;
+      const prev = natural.slice(0, i).reverse().find(x=>result.includes(x));
+      result.splice(prev ? result.indexOf(prev) + 1 : 0, 0, k);
+    });
+    const marks = cards.map(c=>{ const m = document.createComment('slot'); c.before(m); return m; });
+    const byKey = Object.fromEntries(cards.map(c=>[c.dataset.block, c]));
+    marks.forEach((m, i)=>{ m.replaceWith(byKey[result[i]]); });
+  }
+  if(!ui.arrangeCards) return;
+  [...body.children].filter(el=>el.dataset && el.dataset.block).forEach(c=>{
+    const bar = document.createElement('div');
+    bar.className = 'arrange';
+    bar.innerHTML = '<button class="btn ghost sm" data-mv="-1" title="Выше">↑</button><button class="btn ghost sm" data-mv="1" title="Ниже">↓</button>';
+    c.querySelector(':scope > .eyebrow').append(bar);
+    bar.onclick = e=>{
+      const b = e.target.closest('[data-mv]'); if(!b) return;
+      const list = [...body.children].filter(el=>el.dataset && el.dataset.block).map(el=>el.dataset.block);
+      const i = list.indexOf(c.dataset.block), j = i + (+b.dataset.mv);
+      if(j < 0 || j >= list.length) return;
+      [list[i], list[j]] = [list[j], list[i]];
+      state.settings.cardOrder = list; save(); drawDrawer();
+    };
+  });
 }
 
 function bindDrawer(d){
@@ -6806,7 +6927,8 @@ function flatten(d){
     payments:JSON.stringify(d.payments||[]), history:JSON.stringify(d.history||[]),
     plan:JSON.stringify(d.plan||{tables:[]}),
     partners:JSON.stringify(d.partners||{}),
-    flags:JSON.stringify({checklistDone:!!d.checklistDone, amountManual:!!d.amountManual,
+    flags:JSON.stringify({addonsDone:d.addonsDone||[], plotRequest:d.plotRequest||null, plotManual:!!d.plotManual,
+                          checklistDone:!!d.checklistDone, amountManual:!!d.amountManual,
                           priceApplied:+d.priceApplied||0}),
     party: state.settings.syncParty ? JSON.stringify(d.party||{}) : ''};
 }
@@ -6829,7 +6951,10 @@ function unflatten(r){
     payments:parse(r.payments), history:parse(r.history),
     plan:(function(){ try{ return JSON.parse(r.plan||'{"tables":[]}'); }catch(e){ return {tables:[]}; } })(),
     ...(function(){ let f = {}; try{ f = JSON.parse(r.flags || '{}'); }catch(e){}
-        return {checklistDone:!!f.checklistDone, amountManual:!!f.amountManual, priceApplied:+f.priceApplied||0}; })()};
+        const o = {checklistDone:!!f.checklistDone, amountManual:!!f.amountManual, priceApplied:+f.priceApplied||0,
+                   addonsDone:f.addonsDone||[], plotManual:!!f.plotManual};
+        if(f.plotRequest) o.plotRequest = f.plotRequest;
+        return o; })()};
 }
 function downloadCSV(){
   const cols = ['date','client','type','venue','guests','status','amount','paid','due','phone','contact','source','nextDate','nextText','notes'];

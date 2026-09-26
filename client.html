@@ -71,17 +71,8 @@
   .total{display:flex;justify-content:space-between;align-items:baseline;margin:12px 0 8px;padding-top:10px;border-top:1px solid var(--line)}
   .total b{font-size:20px}
   .req{font-size:13.5px;padding:8px 0;border-top:1px solid var(--line)} .req:first-child{border-top:0}
-  /* план рассадки */
+  #planCard .plansvg{border:1px solid var(--line);border-radius:12px;background:#fff}
   .plantools{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
-  .plan{width:100%;height:auto;touch-action:none;background:#FAFAF7;border:1px solid var(--line);border-radius:12px;display:block;user-select:none;-webkit-user-select:none}
-  .plan .grid{stroke:#ECEDE8;stroke-width:.02}
-  .plan .tb{fill:#F4F1E8;stroke:#8A7A55;stroke-width:.04;cursor:grab}
-  .plan .tb.stand{fill:#E8EEF4;stroke:#3D6E92}
-  .plan g.sel .tb{stroke:var(--accent);stroke-width:.09}
-  .plan .tn{font-size:.34px;font-weight:700;fill:var(--ink);text-anchor:middle;dominant-baseline:central;pointer-events:none}
-  .plan .ch{fill:#fff;stroke:#8A939C;stroke-width:.025}
-  .plan .ch.filled{fill:#CFE3DC;stroke:var(--accent)}
-  .plan .cn{font-size:.17px;fill:var(--soft);text-anchor:middle;dominant-baseline:central;pointer-events:none}
   .selpanel{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
   .selhead{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px}
   .selhead b{flex:1 1 100%;font-size:15px}
@@ -94,6 +85,22 @@
   .contact svg{width:19px;height:19px;flex:none}
   .contact.ghost{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 1.5px var(--line)}
   .foot{display:flex;justify-content:space-between;align-items:center;margin-top:18px}
+</style>
+<style id="planCss">
+  .plansvg{width:100%;height:auto;touch-action:none;user-select:none;-webkit-user-select:none;display:block}
+  .plansvg .room{fill:#fff;stroke:#151C24;stroke-width:.05}
+  .plansvg .grid line{stroke:#E4E7E2;stroke-width:.015}
+  .plansvg .halo{fill:#1F5F52;opacity:.07;stroke:#1F5F52;stroke-opacity:.16;stroke-width:.02}
+  .plansvg .ch{fill:#DCE3DA;stroke:#8A939C;stroke-width:.02}
+  .plansvg .ch.filled{fill:#9CC7B8;stroke:#1F5F52}
+  .plansvg .cn{font-size:.17px;fill:#151C24;text-anchor:middle;dominant-baseline:central;pointer-events:none}
+  .plansvg .tb{fill:#F4F1E8;stroke:#8A7A55;stroke-width:.04}
+  .plansvg .tb.stand{fill:#E8EEF4;stroke:#3D6E92}
+  .plansvg .table.sel .tb{stroke:#1F5F52;stroke-width:.08}
+  .plansvg .table{cursor:grab}
+  .plansvg .tn{font-size:.34px;font-weight:700;fill:#151C24;text-anchor:middle;dominant-baseline:middle;pointer-events:none}
+  .plansvg .tg{font-size:.26px;fill:#5A6570;text-anchor:middle;dominant-baseline:middle;pointer-events:none}
+  .plansvg .dim{font-size:.3px;fill:#8A939C;text-anchor:middle}
 </style>
 </head>
 <body>
@@ -391,97 +398,137 @@
     }).catch(function(){ box.innerHTML = '<h2>Дополнить мероприятие</h2><p class="muted">Не удалось загрузить прайс. Напишите нам — поможем.</p>'; });
   }
 
-  /* ================= план рассадки: клиент рисует сам ================= */
-  var plan = null, sel = null, dirty = false, drag = null;
-  var PRESETS = {r:{type:'round', w:1.8, h:1.8, seats:10, label:'Круглый · 10'}, p:{type:'rect', w:1.8, h:0.8, seats:6, label:'Прямоуг. · 6'},
-                 f:{type:'round', w:0.7, h:0.7, seats:0, stand:true, label:'Фуршет'}};
+  /* ================= план рассадки — та же схема, что в CRM ================= */
+  var ZONE_PAD = 0.35, CHAIR_OUT = 0.35, PAD = 0.6;
+  var PRESETS = {r180:{type:'round', label:'Круглый 180', w:1.8, h:1.8, seats:10}, p180:{type:'rect', label:'Прямоуг. 180×80', w:1.8, h:0.8, seats:6},
+                 f70:{type:'round', label:'Фуршетный 70', w:0.7, h:0.7, seats:0, stand:true}};
+  var plan = null, sel = null, dirty = false, drag = null, halls = null, geo = {w:15, h:10, img:'', imgOpacity:0.55};
   function confirmLeave(){ return !dirty || confirm('План рассадки не сохранён. Уйти без сохранения?'); }
   window.addEventListener('beforeunload', function(e){ if(dirty){ e.preventDefault(); e.returnValue = ''; } });
 
+  function loadHalls(){
+    if(halls) return Promise.resolve(halls);
+    return fetch(cfg.api + '?hook=halls&t=' + Date.now(), {cache:'no-store'}).then(function(r){ return r.json(); })
+      .then(function(j){ halls = j.halls || {}; return halls; }).catch(function(){ halls = {}; return halls; });
+  }
   function initPlan(){
     plan = JSON.parse(JSON.stringify(cur.plan && cur.plan.tables ? cur.plan : {tables:[]}));
-    plan.tables.forEach(function(t){ t.names = t.names || []; });
-    sel = null; dirty = false; drawPlan();
+    plan.tables.forEach(function(t){ t.names = t.names || []; if(t.guests == null || t.guests === '') t.guests = t.stand ? 6 : t.seats; });
+    sel = null; dirty = false;
+    document.getElementById('planCard').innerHTML = '<h2>План рассадки</h2><p class="muted">Загружаем схему зала…</p>';
+    loadHalls().then(function(h){ geo = h[cur.hall] || {w:15, h:10, img:'', imgOpacity:0.55}; drawPlan(); });
   }
-  function chairPos(t, i){
-    var n = t.seats;
-    if(t.type === 'round'){ var a = ((360 / n) * i - 90) * Math.PI / 180, r = t.w / 2 + 0.32; return [Math.cos(a) * r, Math.sin(a) * r]; }
-    var half = Math.ceil(n / 2), top = i < half, idx = top ? i : i - half, cnt = top ? half : n - half;
-    return [-t.w / 2 + t.w * (idx + 1) / (cnt + 1), top ? -(t.h / 2 + 0.32) : (t.h / 2 + 0.32)];
+
+  /* стулья — как в CRM: по числу гостей за столом; номер стула = номер в списке гостей */
+  function seatsOf(t){
+    var n = +t.guests || 0, out = [];
+    if(!n || t.stand) return out;
+    if(t.type === 'round'){
+      var r = t.w / 2 + CHAIR_OUT;
+      for(var i = 0; i < n; i++){ var a = (360 / n) * i - 90, rad = a * Math.PI / 180; out.push([Math.cos(rad) * r, Math.sin(rad) * r, a + 90]); }
+      return out;
+    }
+    var maxSide = Math.max(1, Math.floor(t.w / 0.55)), top = Math.min(maxSide, Math.ceil(n / 2)), bottom = Math.min(maxSide, n - top), ends = n - top - bottom;
+    var line = function(count, y, a){ for(var i = 0; i < count; i++) out.push([-t.w / 2 + t.w * (i + 1) / (count + 1), y, a]); };
+    line(top, -(t.h / 2 + CHAIR_OUT), 0); line(bottom, t.h / 2 + CHAIR_OUT, 180);
+    if(ends > 0) out.push([-(t.w / 2 + CHAIR_OUT), 0, 90]);
+    if(ends > 1) out.push([t.w / 2 + CHAIR_OUT, 0, 270]);
+    return out;
   }
-  /* холст по размеру расставленных столов: на телефоне столы крупные, а не точки на пустом поле */
-  function extent(){
-    if(!plan.tables.length) return [0, 0, 10, 6];
-    var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
-    plan.tables.forEach(function(t){ var r = Math.max(t.w, t.h) / 2 + 0.6;
-      x0 = Math.min(x0, t.x - r); y0 = Math.min(y0, t.y - r); x1 = Math.max(x1, t.x + r); y1 = Math.max(y1, t.y + r); });
-    x0 = Math.floor(x0 - 1); y0 = Math.floor(y0 - 1); x1 = Math.ceil(x1 + 1); y1 = Math.ceil(y1 + 1);
-    var W = Math.max(8, x1 - x0), H = Math.max(5, y1 - y0);
-    return [x0, y0, W, H];
-  }
-  function svgHtml(){
-    var e = extent(), X = e[0], Y = e[1], W = e[2], H = e[3], g = '';
-    for(var x = X + 1; x < X + W; x++) g += '<line class="grid" x1="' + x + '" y1="' + Y + '" x2="' + x + '" y2="' + (Y + H) + '"/>';
-    for(var y = Y + 1; y < Y + H; y++) g += '<line class="grid" x1="' + X + '" y1="' + y + '" x2="' + (X + W) + '" y2="' + y + '"/>';
+  function svgHtml(live){
+    var g = geo, W = g.w + PAD * 2, H = g.h + PAD * 2, grid = '';
+    for(var x = 1; x < g.w; x++) grid += '<line x1="' + (PAD + x) + '" y1="' + PAD + '" x2="' + (PAD + x) + '" y2="' + (PAD + g.h) + '"/>';
+    for(var y = 1; y < g.h; y++) grid += '<line x1="' + PAD + '" y1="' + (PAD + y) + '" x2="' + (PAD + g.w) + '" y2="' + (PAD + y) + '"/>';
+    var img = g.img ? '<image href="' + g.img + '" x="' + PAD + '" y="' + PAD + '" width="' + g.w + '" height="' + g.h + '" preserveAspectRatio="none" opacity="' + g.imgOpacity + '"/>' : '';
     var items = plan.tables.map(function(t, ti){
-      var chairs = '';
-      if(!t.stand) for(var i = 0; i < t.seats; i++){
-        var p = chairPos(t, i), f = String(t.names[i] || '').trim() ? ' filled' : '';
-        chairs += '<circle class="ch' + f + '" cx="' + p[0].toFixed(2) + '" cy="' + p[1].toFixed(2) + '" r="0.17"/>' +
-          '<text class="cn" transform="translate(' + p[0].toFixed(2) + ' ' + p[1].toFixed(2) + ') rotate(' + (-(t.rot || 0)) + ')">' + (i + 1) + '</text>';
-      }
-      var shape = t.type === 'round' ? '<circle class="tb' + (t.stand ? ' stand' : '') + '" r="' + (t.w / 2) + '"/>'
-        : '<rect class="tb" x="' + (-t.w / 2) + '" y="' + (-t.h / 2) + '" width="' + t.w + '" height="' + t.h + '" rx="0.08"/>';
-      return '<g data-t="' + ti + '"' + (sel === ti ? ' class="sel"' : '') + ' transform="translate(' + t.x.toFixed(2) + ' ' + t.y.toFixed(2) + ') rotate(' + (t.rot || 0) + ')">' +
-        chairs + shape + '<text class="tn" transform="rotate(' + (-(t.rot || 0)) + ')">' + (ti + 1) + '</text></g>';
+      var zone = t.type === 'round' ? '<circle r="' + (t.w / 2 + ZONE_PAD) + '" class="halo"/>'
+        : '<rect x="' + (-t.w / 2 - ZONE_PAD) + '" y="' + (-t.h / 2 - ZONE_PAD) + '" width="' + (t.w + ZONE_PAD * 2) + '" height="' + (t.h + ZONE_PAD * 2) + '" rx="' + ZONE_PAD + '" class="halo"/>';
+      var chairs = seatsOf(t).map(function(p, i){
+        var f = String(t.names[i] || '').trim() ? ' filled' : '';
+        return '<g transform="translate(' + p[0].toFixed(3) + ' ' + p[1].toFixed(3) + ')"><rect x="-0.2" y="-0.18" width="0.4" height="0.36" rx="0.07" class="ch' + f + '" transform="rotate(' + p[2].toFixed(1) + ')"/>' +
+          '<text class="cn" transform="rotate(' + (-(t.rot || 0)) + ')">' + (i + 1) + '</text></g>';
+      }).join('');
+      var shape = t.type === 'round' ? '<circle r="' + (t.w / 2) + '" class="tb' + (t.stand ? ' stand' : '') + '"/>'
+        : '<rect x="' + (-t.w / 2) + '" y="' + (-t.h / 2) + '" width="' + t.w + '" height="' + t.h + '" rx="0.08" class="tb"/>';
+      return '<g class="table' + (live && sel === ti ? ' sel' : '') + '" data-t="' + ti + '" transform="translate(' + (PAD + t.x).toFixed(2) + ' ' + (PAD + t.y).toFixed(2) + ') rotate(' + (t.rot || 0) + ')">' +
+        zone + chairs + shape + '<g transform="rotate(' + (-(t.rot || 0)) + ')"><text class="tn" y="' + (t.stand ? 0.03 : -0.1) + '">' + (ti + 1) + '</text>' +
+        (t.stand ? '' : '<text class="tg" y="0.42">' + (t.guests || 0) + '/' + (t.seats || 0) + '</text>') + '</g></g>';
     }).join('');
-    return '<svg class="plan" id="planSvg" viewBox="' + X + ' ' + Y + ' ' + W + ' ' + H + '">' + g + items + '</svg>';
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="plansvg"' + (live ? ' id="planSvg"' : '') + '>' +
+      '<rect x="' + PAD + '" y="' + PAD + '" width="' + g.w + '" height="' + g.h + '" class="room"/>' + img + '<g class="grid">' + grid + '</g>' + items +
+      '<text x="' + (PAD + g.w / 2) + '" y="' + (PAD * 0.7) + '" class="dim">' + g.w + ' м</text>' +
+      '<text x="' + (PAD * 0.55) + '" y="' + (PAD + g.h / 2) + '" class="dim" transform="rotate(-90 ' + (PAD * 0.55) + ' ' + (PAD + g.h / 2) + ')">' + g.h + ' м</text></svg>';
   }
-  function counts(){
-    var seats = 0, filled = 0;
-    plan.tables.forEach(function(t){ if(!t.stand) seats += t.seats; filled += t.names.filter(function(x){ return String(x || '').trim(); }).length; });
-    return 'Столов: ' + plan.tables.length + ' · мест: ' + seats + ' · гостей вписано: ' + filled;
+  function stats(){
+    var t = plan.tables, chairs = 0, guests = 0, filled = 0;
+    t.forEach(function(x){ if(!x.stand) chairs += +x.guests || 0; guests += +x.guests || 0; filled += x.names.filter(function(n){ return String(n || '').trim(); }).length; });
+    return {tables:t.length, chairs:chairs, guests:guests, filled:filled, need:+cur.guests || 0};
+  }
+  function statsLine(){
+    var s = stats();
+    return 'столов <b>' + s.tables + '</b> · стульев <b>' + s.chairs + '</b> · гостей <b>' + s.guests + (s.need ? ' из ' + s.need : '') + '</b> · вписано имён <b>' + s.filled + '</b>';
   }
   function drawPlan(){
     var box = document.getElementById('planCard');
-    var t = sel != null ? plan.tables[sel] : null;
-    var panel = '';
+    var t = sel != null ? plan.tables[sel] : null, panel = '';
     if(t){
-      var n = t.stand ? Math.max(6, t.names.length) : t.seats, rows = '';
+      var n = +t.guests || 0, rows = '';
       for(var i = 0; i < n; i++) rows += '<div class="seatrow"><span class="no">' + (i + 1) + '</span><input data-s="' + i + '" value="' + esc(t.names[i] || '') + '" placeholder="Имя гостя"></div>';
       panel = '<div class="selpanel"><div class="selhead"><b>' + (t.stand ? 'Фуршетный стол ' : 'Стол ') + (sel + 1) + '</b>' +
-        (t.stand ? '' : '<div class="step"><button type="button" id="sMinus">−</button><output>' + t.seats + '</output><button type="button" id="sPlus">+</button></div><span class="muted">мест</span>') +
+        '<div class="step"><button type="button" id="sMinus">−</button><output>' + n + '</output><button type="button" id="sPlus">+</button></div><span class="muted">' + (t.stand ? 'гостей' : 'стульев') + '</span>' +
         '<button class="btn ghost sm" type="button" id="tRot">Повернуть</button><button class="btn ghost sm" type="button" id="tDel">Удалить</button></div>' +
         '<p class="muted" style="margin-bottom:6px">Номер совпадает с номером стула на схеме.</p>' + rows + '</div>';
     }
-    box.innerHTML = '<h2>План рассадки</h2>' +
-      '<div class="plantools">' + Object.keys(PRESETS).map(function(k){ return '<button class="btn ghost sm" type="button" data-add="' + k + '">+ ' + PRESETS[k].label + '</button>'; }).join('') + '</div>' +
-      svgHtml() + '<p class="muted" style="margin-top:8px">' + counts() + (plan.tables.length ? '. Перетаскивайте столы, нажмите на стол, чтобы вписать гостей.' : '. Добавьте столы кнопками выше.') + '</p>' +
-      panel + '<button class="btn" id="planSave" style="margin-top:14px"' + (dirty ? '' : ' disabled') + '>' + (dirty ? 'Сохранить план' : 'План сохранён') + '</button><p class="formmsg" id="planMsg" hidden></p>';
+    box.innerHTML = '<h2>План рассадки · ' + esc(cur.hall || 'зал') + ' · ' + geo.w + '×' + geo.h + ' м</h2>' +
+      '<p class="muted" style="margin-bottom:10px" id="planStats">' + statsLine() + '</p>' +
+      '<div class="plantools">' + Object.keys(PRESETS).map(function(k){ return '<button class="btn ghost sm" type="button" data-add="' + k + '">+ ' + PRESETS[k].label + '</button>'; }).join('') +
+      '<button class="btn ghost sm" type="button" id="autoBtn">Расставить автоматически</button></div>' +
+      svgHtml(true) +
+      '<p class="muted" style="margin-top:8px">' + (plan.tables.length ? 'Перетаскивайте столы. Нажмите на стол — впишите гостей по номерам стульев.' : 'Добавьте стол кнопками сверху, затем перетащите его по залу.') + '</p>' +
+      panel +
+      '<button class="btn" id="planSave" style="margin-top:14px"' + (dirty ? '' : ' disabled') + '>' + (dirty ? 'Сохранить план' : 'План сохранён') + '</button>' +
+      (plan.tables.length ? '<button class="btn ghost" id="planPdf" style="margin-top:8px">Скачать PDF</button>' : '') +
+      '<p class="formmsg" id="planMsg" hidden></p>';
     bindPlanUI();
   }
   function changed(){ dirty = true; var b = document.getElementById('planSave'); if(b){ b.disabled = false; b.textContent = 'Сохранить план'; } }
+  function clampTable(t){ t.x = Math.min(geo.w - 0.2, Math.max(0.2, t.x)); t.y = Math.min(geo.h - 0.2, Math.max(0.2, t.y)); }
   function bindPlanUI(){
     var box = document.getElementById('planCard');
     box.querySelectorAll('[data-add]').forEach(function(b){ b.onclick = function(){
       var p = PRESETS[b.dataset.add], n = plan.tables.length;
-      plan.tables.push({id:'c' + Date.now().toString(36) + n, type:p.type, w:p.w, h:p.h, seats:p.seats, stand:!!p.stand, rot:0,
-        x: 1.8 + (n % 5) * 2.8, y: 1.8 + Math.floor(n / 5) * 2.8, names:[]});
-      sel = plan.tables.length - 1; changed(); drawPlan();
+      var t = {id:'c' + Date.now().toString(36) + n, type:p.type, w:p.w, h:p.h, seats:p.seats, stand:!!p.stand, guests:p.stand ? 6 : p.seats, rot:0,
+        x: Math.min(geo.w - 1, 1.5 + (n % 6) * 2), y: Math.min(geo.h - 1, 1.5 + Math.floor(n / 6) * 2), names:[]};
+      plan.tables.push(t); sel = plan.tables.length - 1; changed(); drawPlan();
     }; });
+    document.getElementById('autoBtn').onclick = function(){
+      var need = +cur.guests || 0;
+      if(!need){ alert('Число гостей не указано — напишите менеджеру или расставьте столы вручную.'); return; }
+      var p = PRESETS.r180, seats = p.seats, n = Math.ceil(need / seats);
+      var stepX = p.w + ZONE_PAD * 2 + 0.4, stepY = p.h + ZONE_PAD * 2 + 0.6, perRow = Math.max(1, Math.floor((geo.w - 1) / stepX));
+      if(!confirm('Расставить ' + n + ' круглых столов на ' + need + ' гостей? Текущая схема будет заменена.')) return;
+      var left = need, tables = [];
+      for(var i = 0; i < n; i++){
+        var g = Math.min(seats, left); left -= g;
+        tables.push({id:'c' + Date.now().toString(36) + i, type:p.type, w:p.w, h:p.h, seats:p.seats, stand:false, guests:g, rot:0, names:[],
+          x: Math.min(geo.w - p.w / 2, 1 + p.w / 2 + (i % perRow) * stepX), y: Math.min(geo.h - p.h / 2, 1 + p.h / 2 + Math.floor(i / perRow) * stepY)});
+      }
+      plan.tables = tables; sel = null; changed(); drawPlan();
+    };
     var t = sel != null ? plan.tables[sel] : null;
     if(t){
-      var pm = function(d){ t.seats = Math.max(1, Math.min(30, t.seats + d)); t.names = t.names.slice(0, t.seats); changed(); drawPlan(); };
-      var mi = document.getElementById('sMinus'); if(mi) mi.onclick = function(){ pm(-1); };
-      var pl = document.getElementById('sPlus'); if(pl) pl.onclick = function(){ pm(1); };
+      var pm = function(d){ t.guests = Math.max(1, Math.min(t.stand ? 40 : 30, (+t.guests || 0) + d)); if(!t.stand) t.seats = Math.max(+t.seats || 0, t.guests);
+        t.names = t.names.slice(0, t.guests); changed(); drawPlan(); };
+      document.getElementById('sMinus').onclick = function(){ pm(-1); };
+      document.getElementById('sPlus').onclick = function(){ pm(1); };
       document.getElementById('tRot').onclick = function(){ t.rot = ((t.rot || 0) + 90) % 360; changed(); drawPlan(); };
       document.getElementById('tDel').onclick = function(){
         if(t.names.some(function(x){ return String(x || '').trim(); }) && !confirm('За этим столом уже вписаны гости. Удалить стол?')) return;
         plan.tables.splice(sel, 1); sel = null; changed(); drawPlan(); };
       box.querySelectorAll('.seatrow input').forEach(function(inp){
         inp.oninput = function(){ t.names[+inp.dataset.s] = inp.value; changed();
-          var svg = document.getElementById('planSvg'); svg.outerHTML = svgHtml(); bindSvg();
-          box.querySelector('p.muted').firstChild.textContent = counts() + '. Перетаскивайте столы, нажмите на стол, чтобы вписать гостей.'; };
+          document.getElementById('planSvg').outerHTML = svgHtml(true); bindSvg();
+          document.getElementById('planStats').innerHTML = statsLine(); };
       });
     }
     bindSvg();
@@ -493,6 +540,7 @@
         cur.plan = r.plan || plan; dirty = false; busy(b, true, 'План сохранён'); msg(m, true, 'Сохранено — менеджер видит план в вашей заявке.');
       }).catch(function(err){ busy(b, false, 'Сохранить план'); msg(m, false, err.message || 'Не сохранилось, попробуйте ещё раз.'); });
     };
+    var pdf = document.getElementById('planPdf'); if(pdf) pdf.onclick = printPlan;
   }
   function toPlan(svg, ev){
     var pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
@@ -501,29 +549,47 @@
   function bindSvg(){
     var svg = document.getElementById('planSvg'); if(!svg) return;
     svg.addEventListener('pointerdown', function(ev){
-      var g = ev.target.closest('g[data-t]');
+      var g = ev.target.closest('g.table');
       if(!g){ if(sel != null){ sel = null; drawPlan(); } return; }
       var ti = +g.dataset.t, t = plan.tables[ti], p = toPlan(svg, ev);
-      drag = {ti:ti, dx:p.x - t.x, dy:p.y - t.y, moved:false};
+      drag = {ti:ti, dx:p.x - PAD - t.x, dy:p.y - PAD - t.y, moved:false};
       try{ svg.setPointerCapture(ev.pointerId); }catch(e){}
       ev.preventDefault();
     });
     svg.addEventListener('pointermove', function(ev){
       if(!drag) return;
       var p = toPlan(svg, ev), t = plan.tables[drag.ti];
-      var nx = Math.max(0.5, Math.round((p.x - drag.dx) * 10) / 10), ny = Math.max(0.5, Math.round((p.y - drag.dy) * 10) / 10);
+      var nx = Math.round((p.x - PAD - drag.dx) * 10) / 10, ny = Math.round((p.y - PAD - drag.dy) * 10) / 10;
       if(Math.abs(nx - t.x) + Math.abs(ny - t.y) < 0.05) return;
-      t.x = nx; t.y = ny; drag.moved = true;
-      var g = svg.querySelector('g[data-t="' + drag.ti + '"]');
-      g.setAttribute('transform', 'translate(' + t.x.toFixed(2) + ' ' + t.y.toFixed(2) + ') rotate(' + (t.rot || 0) + ')');
+      t.x = nx; t.y = ny; clampTable(t); drag.moved = true;
+      svg.querySelector('g.table[data-t="' + drag.ti + '"]').setAttribute('transform', 'translate(' + (PAD + t.x).toFixed(2) + ' ' + (PAD + t.y).toFixed(2) + ') rotate(' + (t.rot || 0) + ')');
     });
-    var end = function(){
-      if(!drag) return;
-      var d = drag; drag = null;
-      if(d.moved) changed();
-      if(sel !== d.ti || d.moved){ sel = d.ti; drawPlan(); }
-    };
+    var end = function(){ if(!drag) return; var d = drag; drag = null; if(d.moved) changed(); if(sel !== d.ti || d.moved){ sel = d.ti; drawPlan(); } };
     svg.addEventListener('pointerup', end); svg.addEventListener('pointercancel', end);
+  }
+
+  /* PDF: схема и гости по столам — печать браузера, «Сохранить как PDF» */
+  function printPlan(){
+    var lists = plan.tables.map(function(t, i){
+      var names = t.names.map(function(n, k){ return String(n || '').trim() ? '<li><b>' + (k + 1) + '.</b> ' + esc(n) + '</li>' : ''; }).join('');
+      return '<div class="tl"><h3>' + (t.stand ? 'Фуршетный стол ' : 'Стол ') + (i + 1) + ' <span>' + (t.stand ? '' : (t.guests || 0) + ' мест') + '</span></h3>' +
+        (names ? '<ol>' + names + '</ol>' : '<p class="e">гости не вписаны</p>') + '</div>';
+    }).join('');
+    var css = document.getElementById('planCss').textContent;
+    var html = '<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Рассадка — ' + esc(cur.client || '') + ' ' + esc(cur.date || '') + '</title><style>' +
+      'body{font-family:-apple-system,"Segoe UI",Roboto,sans-serif;color:#151C24;margin:0;background:#ECEEEB}.sheet{max-width:190mm;margin:14px auto;background:#fff;padding:12mm}' +
+      'h1{font-size:20px;margin:0}.sub{color:#5A6570;font-size:13px;margin:3px 0 10px}.plan{border:1px solid #D8DCD6;border-radius:4px;padding:2mm}' +
+      '.lists{columns:3;column-gap:8mm;margin-top:6mm}.tl{break-inside:avoid;margin-bottom:5mm}.tl h3{font-size:13px;margin:0 0 2mm}.tl h3 span{color:#8A939C;font-weight:400}' +
+      '.tl ol{list-style:none;margin:0;padding:0;font-size:12px;line-height:1.5}.e{font-size:12px;color:#8A939C;margin:0}' +
+      '.tools{position:sticky;top:0;background:#151C24;color:#fff;padding:10px 16px;display:flex;align-items:center;font-size:14px}' +
+      '.tools button{background:#fff;color:#151C24;border:0;border-radius:7px;padding:9px 14px;font-weight:600;margin-left:auto}' +
+      '@media (max-width:600px){.lists{columns:1}}@media print{.tools{display:none}body{background:#fff}.sheet{margin:0;padding:0;max-width:none}}' + css + '</style></head><body>' +
+      '<div class="tools"><b>Рассадка</b><button onclick="window.print()">Сохранить PDF</button></div><div class="sheet"><h1>' + esc(cur.client || 'Мероприятие') + '</h1>' +
+      '<div class="sub">' + dLong(cur.date) + ' · ' + esc(cur.hall || '') + ' · ' + stats().guests + ' гостей</div><div class="plan">' + svgHtml(false) + '</div><div class="lists">' + lists + '</div></div></body></html>';
+    var w = window.open('', '_blank');
+    if(w){ w.document.write(html); w.document.close(); return; }
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([html], {type:'text/html;charset=utf-8'})); a.download = 'rassadka.html'; a.click();
   }
 
   /* ================= запуск ================= */
