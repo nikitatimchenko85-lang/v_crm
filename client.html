@@ -63,6 +63,9 @@
   .formmsg{margin:8px 0 0;font-size:13px}
   .formmsg.err{color:var(--warn)}
   .formmsg.ok{color:var(--accent)}
+  .forgot{text-align:right;margin:-4px 0 12px}
+  .forgot a{font-size:13px;color:var(--soft);text-decoration:none;cursor:pointer}
+  .forgot a:hover{color:var(--ink);text-decoration:underline}
 
   .plan{width:100%;height:auto;touch-action:none;background:var(--paper);border-radius:12px}
   .plan .tb{fill:#F4F1E8;stroke:#8A7A55;stroke-width:.04}
@@ -142,8 +145,15 @@
       '<form id="loginForm">' +
       '<label class="f"><input type="email" id="liEmail" placeholder="E-mail" autocomplete="username" required></label>' +
       '<label class="f"><input type="password" id="liPass" placeholder="Пароль" autocomplete="current-password" required></label>' +
-      '<button type="submit" class="btn" id="liBtn">Войти</button>' +
+      '<div class="forgot"><a id="forgotLink">Забыли пароль?</a></div>' +
+      '<button type="submit" class="btn" id="liBtn">Отправить</button>' +
       '<p class="formmsg" id="liMsg" hidden></p>' +
+      '</form>' +
+      '<form id="forgotForm" hidden>' +
+      '<p class="req" style="margin:0 0 12px">Пришлём на почту ссылку для входа — по ней можно будет задать новый пароль.</p>' +
+      '<label class="f"><input type="email" id="foEmail" placeholder="E-mail" autocomplete="username" required></label>' +
+      '<button type="submit" class="btn ghost" id="foBtn">Отправить</button>' +
+      '<p class="formmsg" id="foMsg" hidden></p>' +
       '</form></div>';
   }
   function bindLogin(){
@@ -160,8 +170,27 @@
         localStorage.setItem(LS_KEY, JSON.stringify({email:email, password:pass}));
         renderCabinet(r);
       }).catch(function(err){
-        btn.disabled = false; btn.textContent = 'Войти';
+        btn.disabled = false; btn.textContent = 'Отправить';
         msg.hidden = false; msg.className = 'formmsg err'; msg.textContent = err.message || 'Не удалось войти.';
+      });
+    });
+
+    var link = document.getElementById('forgotLink');
+    var loginF = document.getElementById('loginForm'), forgotF = document.getElementById('forgotForm');
+    link.addEventListener('click', function(){ loginF.hidden = true; forgotF.hidden = false; });
+
+    forgotF.addEventListener('submit', function(e){
+      e.preventDefault();
+      var email = document.getElementById('foEmail').value.trim();
+      var btn = document.getElementById('foBtn'), msg = document.getElementById('foMsg');
+      btn.disabled = true; btn.textContent = 'Отправляем…'; msg.hidden = true;
+      call('reset', {email: email}).then(function(r){
+        msg.hidden = false; btn.disabled = false; btn.textContent = 'Отправить';
+        if(r.status === 'ok'){ msg.className = 'formmsg ok'; msg.textContent = r.message || 'Ссылка отправлена.'; }
+        else { msg.className = 'formmsg err'; msg.textContent = r.message || 'Не получилось отправить.'; }
+      }).catch(function(){
+        btn.disabled = false; btn.textContent = 'Отправить';
+        msg.hidden = false; msg.className = 'formmsg err'; msg.textContent = 'Не получилось отправить. Проверьте интернет.';
       });
     });
   }
