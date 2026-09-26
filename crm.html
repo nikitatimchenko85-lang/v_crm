@@ -2487,6 +2487,8 @@ function mergeRemote(out){
   // входящие заявки превращаем в карточки
   const gotLeads = importLeads(out.leads);
   if(gotLeads) toast('Новых заявок: ' + gotLeads);
+  const gotAddons = importAddons(out.addons);
+  if(gotAddons) toast('Допзаказов из кабинета: ' + gotAddons);
 
   // настройки целиком: если в таблице они свежее, если устройство ещё не работало
   // с заявками, либо если их затребовали кнопкой
@@ -4513,7 +4515,27 @@ function renderStats(){
     </tbody></table>`;
   };
 
-  host.innerHTML = table('По источникам', bySource, 'Пока нет заявок с указанным источником.') +
+  // скорость первого ответа: от создания заявки до первого контакта, последние 90 дней
+  const since = Date.now() - 90*864e5, waits = [];
+  let noAnswer = 0;
+  real.forEach(d=>{
+    const c = Date.parse(d.created||''); if(!c || c < since) return;
+    const f = Date.parse(d.firstContactAt||'');
+    if(f) waits.push((f - c)/6e4); else if(d.status === 'new') noAnswer++;
+  });
+  waits.sort((a,b)=>a-b);
+  const med = waits.length ? waits[Math.floor(waits.length/2)] : null;
+  const mins = m => m < 60 ? Math.round(m) + ' мин' : m < 1440 ? (m/60).toFixed(1).replace('.0','') + ' ч' : Math.round(m/1440) + ' дн';
+  const speed = `<div class="card" style="margin-bottom:20px"><div class="eyebrow">Скорость ответа на заявку · 90 дней</div>
+    ${waits.length ? `<div class="grid3">
+      <div><div class="sub">Обычно отвечаем за</div><b style="font-size:22px">${mins(med)}</b></div>
+      <div><div class="sub">В первые 5 минут</div><b style="font-size:22px">${Math.round(waits.filter(m=>m<=5).length/waits.length*100)}%</b></div>
+      <div><div class="sub">Дольше часа</div><b style="font-size:22px">${waits.filter(m=>m>60).length}</b></div></div>`
+      : '<p class="sub">Пока мало данных: время отмечается, когда заявка уходит из статуса «Новая».</p>'}
+    ${noAnswer ? `<p class="note" style="margin-top:10px">Ждут первого ответа: ${noAnswer}.</p>` : ''}
+  </div>`;
+
+  host.innerHTML = speed + table('По источникам', bySource, 'Пока нет заявок с указанным источником.') +
     '<div style="height:20px"></div>' +
     table('По сотрудникам', byOwner, 'Назначьте ответственного в заявке, чтобы увидеть разбивку.') +
     '<p class="note" style="margin-top:16px">Конверсия — доля заявок, дошедших до брони или проведённого события. Выручка считается по заявкам в этих статусах, включая прокат и поляну.</p>';
@@ -5677,7 +5699,7 @@ function bindToday(){
 
 /* ===== Версия и обновление ===== */
 
-const APP_VERSION = '2026.09.27';
+const APP_VERSION = '2026.09.28';
 
 function isHosted(){ return location.protocol === 'http:' || location.protocol === 'https:'; }
 
@@ -6571,6 +6593,8 @@ function drawDrawer(){
 
     ${dealRentCard(d)}
 
+    ${partnersCard(d)}
+
     <div class="card">
       <div class="eyebrow">Заметки</div>
       <textarea data-k="notes" rows="4" placeholder="Меню, подрядчики, пожелания, ограничения">${esc(d.notes)}</textarea>
@@ -6590,6 +6614,69 @@ function drawDrawer(){
   bindDrawer(d);
 }
 
+/* ---------- кейтеринг, организатор, ведущий ----------
+   По e-mail партнёр видит в личном кабинете все мероприятия, где он указан.
+   Клиенту в кабинете показываются имя и телефон партнёра, e-mail — нет. */
+const PARTNER_ROLES = [['catering','Кейтеринг'], ['organizer','Организатор'], ['host','Ведущий']];
+function knownPartners(role){
+  const m = new Map();
+  state.deals.forEach(x=>{ const p = x.partners && x.partners[role]; if(p && p.name) m.set(p.name, p); });
+  return [...m.values()];
+}
+function partnersCard(d){
+  const ps = d.partners || {};
+  return `<div class="card">
+    <div class="eyebrow">Партнёры события</div>
+    ${PARTNER_ROLES.map(([k, label])=>{
+      const p = ps[k] || {};
+      return `<div class="grid3" style="margin-bottom:8px">
+        <label class="f"><span>${label}</span><input type="text" data-pr="${k}" data-pf="name" list="pl-${k}" value="${esc(p.name||'')}" placeholder="Имя или компания"></label>
+        <label class="f"><span>Телефон</span><input type="tel" data-pr="${k}" data-pf="phone" value="${esc(p.phone||'')}"></label>
+        <label class="f"><span>E-mail для кабинета</span><input type="email" data-pr="${k}" data-pf="email" value="${esc(p.email||'')}"></label>
+        <datalist id="pl-${k}">${knownPartners(k).map(x=>`<option value="${esc(x.name)}">`).join('')}</datalist>
+      </div>`;
+    }).join('')}
+    <p class="note">По e-mail партнёр увидит в своём личном кабинете дату, зал, время и число гостей — без сумм и телефона клиента.</p>
+  </div>`;
+}
+function bindPartners(d){
+  document.querySelectorAll('#drawerBody [data-pr]').forEach(el=>{
+    el.addEventListener('change', ()=>{
+      const role = el.dataset.pr, f = el.dataset.pf;
+      d.partners = d.partners || {};
+      const p = d.partners[role] = d.partners[role] || {};
+      const before = p[f] || '';
+      p[f] = el.value.trim();
+      if(f === 'name' && p.name){                       // знакомый партнёр — подставляем его контакты
+        const known = knownPartners(role).find(x=>x.name === p.name && x !== p);
+        if(known){ if(!p.phone) p.phone = known.phone || ''; if(!p.email) p.email = known.email || ''; }
+      }
+      if(!p.name && !p.phone && !p.email) delete d.partners[role];
+      logPush({id:d.id, name:d.client, a:'изменено: ' + PARTNER_ROLES.find(r=>r[0]===role)[1].toLowerCase(), from:before||'—', to:p[f]||'—'});
+      d.updated = new Date().toISOString();
+      save(); drawDrawer();
+    });
+  });
+}
+
+/* ---------- допзаказы из личного кабинета → задачи по заявке ---------- */
+function importAddons(list){
+  if(!list || !list.length) return 0;
+  const seen = state.settings.addonsSeen || (state.settings.addonsSeen = []);
+  let n = 0;
+  list.forEach(a=>{
+    if(!a.id || seen.includes(a.id)) return;
+    const d = state.deals.find(x=>x.clientLinkId && x.clientLinkId === a.token);
+    if(!d) return;                                         // заявка ещё не пришла — заберём при следующей загрузке
+    seen.push(a.id);
+    newTask({title:'Допзаказ из кабинета: ' + a.text + (a.sum ? ' (≈ ' + fmtMoney(a.sum) + ')' : ''), dealId:d.id, due:today()}, true);
+    logPush({id:d.id, name:d.client, a:'допзаказ из кабинета', to:a.text});
+    n++;
+  });
+  while(seen.length > 500) seen.shift();
+  return n;
+}
+
 function bindDrawer(d){
   const body = document.getElementById('drawerBody');
   const useP = body.querySelector('#usePrice');
@@ -6603,6 +6690,7 @@ function bindDrawer(d){
   bindDealTasks(d);
   bindClientLink(d);
   bindDealRent(d);
+  bindPartners(d);
 
   body.querySelectorAll('[data-k]').forEach(el=>{
     el.addEventListener('change', ()=>{
@@ -6717,6 +6805,7 @@ function flatten(d){
     firstContactAt:d.firstContactAt||'', clientLinkId:d.clientLinkId||'',
     payments:JSON.stringify(d.payments||[]), history:JSON.stringify(d.history||[]),
     plan:JSON.stringify(d.plan||{tables:[]}),
+    partners:JSON.stringify(d.partners||{}),
     flags:JSON.stringify({checklistDone:!!d.checklistDone, amountManual:!!d.amountManual,
                           priceApplied:+d.priceApplied||0}),
     party: state.settings.syncParty ? JSON.stringify(d.party||{}) : ''};
@@ -6736,6 +6825,7 @@ function unflatten(r){
     party: (function(){ try{ return JSON.parse(r.party||'{}'); }catch(e){ return {kind:'person'}; } })(),
     nextDate:r.nextDate, nextText:r.nextText, notes:r.notes,
     owner:r.ownerId||'', firstContactAt:r.firstContactAt||'', clientLinkId:r.clientLinkId||'',
+    partners: (function(){ try{ return JSON.parse(r.partners||'{}') || {}; }catch(e){ return {}; } })(),
     payments:parse(r.payments), history:parse(r.history),
     plan:(function(){ try{ return JSON.parse(r.plan||'{"tables":[]}'); }catch(e){ return {tables:[]}; } })(),
     ...(function(){ let f = {}; try{ f = JSON.parse(r.flags || '{}'); }catch(e){}
